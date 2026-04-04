@@ -59,10 +59,17 @@ export interface TrashQualitySize {
 }
 
 export interface TrashNaming {
-  folder: Record<string, string>;
-  file: Record<string, string>;
+  // Radarr: movie folder and file formats
+  folder?: Record<string, string>;
+  file?: Record<string, string>;
+  // Sonarr: series/season/episode formats
   season?: Record<string, string>;
   series?: Record<string, string>;
+  episodes?: {
+    standard?: Record<string, string>;
+    daily?: Record<string, string>;
+    anime?: Record<string, string>;
+  };
   specials?: Record<string, string>;
 }
 
@@ -225,17 +232,18 @@ export class TrashClient {
   /**
    * List available quality profiles
    */
-  async listProfiles(service: TrashService): Promise<{ name: string; description?: string }[]> {
+  async listProfiles(service: TrashService): Promise<{ slug: string; name: string; description?: string }[]> {
     // Check cache
     const cached = cache.getProfileList(service);
     if (cached) {
       // Fetch details for each
       const profiles = await Promise.all(
-        cached.map(name => this.getProfile(service, name))
+        cached.map(slug => this.getProfile(service, slug).then(p => p ? { slug, profile: p } : null))
       );
-      return profiles.filter((p): p is TrashQualityProfile => p !== null).map(p => ({
-        name: p.name,
-        description: p.trash_description,
+      return profiles.filter((p): p is { slug: string; profile: TrashQualityProfile } => p !== null).map(({ slug, profile }) => ({
+        slug,
+        name: profile.name,
+        description: profile.trash_description,
       }));
     }
 
@@ -245,11 +253,12 @@ export class TrashClient {
 
     // Fetch details
     const profiles = await Promise.all(
-      profileNames.map(name => this.getProfile(service, name))
+      profileNames.map(slug => this.getProfile(service, slug).then(p => p ? { slug, profile: p } : null))
     );
-    return profiles.filter((p): p is TrashQualityProfile => p !== null).map(p => ({
-      name: p.name,
-      description: p.trash_description,
+    return profiles.filter((p): p is { slug: string; profile: TrashQualityProfile } => p !== null).map(({ slug, profile }) => ({
+      slug,
+      name: profile.name,
+      description: profile.trash_description,
     }));
   }
 

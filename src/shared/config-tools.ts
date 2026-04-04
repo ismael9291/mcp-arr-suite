@@ -208,8 +208,8 @@ export function buildConfigModule(
         qualityDefinitions: qualityDefinitions.map(d => ({
           quality: d.quality.name,
           minSize: `${d.minSize} MB/min`,
-          maxSize: d.maxSize === 0 ? 'unlimited' : `${d.maxSize} MB/min`,
-          preferredSize: `${d.preferredSize} MB/min`,
+          maxSize: (d.maxSize == null || d.maxSize === 0) ? 'unlimited' : `${d.maxSize} MB/min`,
+          preferredSize: (d.preferredSize == null || d.preferredSize === 0) ? 'unlimited' : `${d.preferredSize} MB/min`,
         })),
         downloadClients: downloadClients.map(c => ({
           name: c.name,

@@ -491,6 +491,9 @@ export class ArrClient {
       const text = await response.text();
       throw new Error(`${this.serviceName} API error: ${response.status} ${response.statusText} - ${text}`);
     }
+    if (response.status === 204 || response.headers.get('content-length') === '0') {
+      return undefined as unknown as T;
+    }
     return response.json() as Promise<T>;
   }
 

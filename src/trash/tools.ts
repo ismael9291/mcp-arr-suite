@@ -167,10 +167,11 @@ export const trashModule: ToolModule = {
         service,
         count: profiles.length,
         profiles: profiles.map(p => ({
+          slug: p.slug,
           name: p.name,
           description: p.description?.replace(/<br>/g, ' ') ?? 'No description',
         })),
-        usage: 'Use trash_get_profile to see full details for a specific profile',
+        usage: 'Use trash_get_profile with the slug value to see full details for a specific profile',
       });
     },
 
@@ -233,17 +234,38 @@ export const trashModule: ToolModule = {
         standard: { folder: 'default', file: 'standard' },
       };
       const keys = serverMap[mediaServer] ?? serverMap['standard'];
+
+      if (service === 'sonarr') {
+        // Sonarr naming JSON uses series/episodes/season instead of folder/file
+        const seriesMap = naming.series ?? {};
+        const episodeMap = naming.episodes?.standard ?? {};
+        const seasonMap = naming.season ?? {};
+        return ok({
+          service,
+          mediaServer,
+          recommended: {
+            series: seriesMap[keys.folder] ?? seriesMap['default'],
+            episode: episodeMap[keys.file] ?? episodeMap['default'],
+            season: seasonMap['default'],
+          },
+          allSeriesOptions: Object.keys(seriesMap),
+          allEpisodeOptions: Object.keys(episodeMap),
+        });
+      }
+
+      const folderMap = naming.folder ?? {};
+      const fileMap = naming.file ?? {};
       return ok({
         service,
         mediaServer,
         recommended: {
-          folder: naming.folder[keys.folder] ?? naming.folder['default'],
-          file: naming.file[keys.file] ?? naming.file['standard'],
+          folder: folderMap[keys.folder] ?? folderMap['default'],
+          file: fileMap[keys.file] ?? fileMap['standard'],
           ...(naming.season ? { season: naming.season[keys.folder] ?? naming.season['default'] } : {}),
           ...(naming.series ? { series: naming.series[keys.folder] ?? naming.series['default'] } : {}),
         },
-        allFolderOptions: Object.keys(naming.folder),
-        allFileOptions: Object.keys(naming.file),
+        allFolderOptions: Object.keys(folderMap),
+        allFileOptions: Object.keys(fileMap),
       });
     },
 
@@ -366,8 +388,12 @@ export const trashModule: ToolModule = {
         standard: { folder: 'default', file: 'standard' },
       };
       const keys = serverMap[mediaServer] ?? serverMap['standard'];
-      const recommendedFolder = trashNaming.folder[keys.folder] ?? trashNaming.folder['default'];
-      const recommendedFile = trashNaming.file[keys.file] ?? trashNaming.file['standard'];
+      const recommendedFolder = service === 'sonarr'
+        ? (trashNaming.series?.[keys.folder] ?? trashNaming.series?.['default'])
+        : (trashNaming.folder?.[keys.folder] ?? trashNaming.folder?.['default']);
+      const recommendedFile = service === 'sonarr'
+        ? (trashNaming.episodes?.standard?.[keys.file] ?? trashNaming.episodes?.standard?.['default'])
+        : (trashNaming.file?.[keys.file] ?? trashNaming.file?.['standard']);
 
       const n = userNaming as unknown as Record<string, unknown>;
       const userFolder = (n['movieFolderFormat'] ?? n['seriesFolderFormat']) as string | undefined;
