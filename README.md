@@ -185,6 +185,14 @@ Additional live test variables:
 | `SONARR_TEST_SERIES_ID` | Series ID for command smoke tests |
 | `LIDARR_TEST_ARTIST_ID` | Artist ID for command smoke tests |
 
+## API Documentation
+
+- [Sonarr API](https://wiki.servarr.com/sonarr/api)
+- [Radarr API](https://wiki.servarr.com/radarr/api)
+- [Lidarr API](https://wiki.servarr.com/lidarr/api)
+- [Prowlarr API](https://wiki.servarr.com/prowlarr/api)
+- [TRaSH Guides](https://trash-guides.info)
+
 ## License
 
-MIT
+[MIT](LICENSE)
