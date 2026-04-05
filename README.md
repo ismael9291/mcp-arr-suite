@@ -4,6 +4,8 @@ MCP server for the \*arr media management suite — Sonarr, Radarr, Lidarr, and 
 
 Exposes your \*arr services as MCP tools consumable by Claude or any MCP-capable client.
 
+<img width="854" height="739" alt="MCP Suite Image Diagram" src="https://github.com/user-attachments/assets/099d2cb3-ff71-4a27-8816-6e0d66f22a7a" />
+
 ## Requirements
 
 - Node.js >= 18
