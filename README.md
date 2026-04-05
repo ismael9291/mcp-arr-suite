@@ -11,11 +11,20 @@ Exposes your \*arr services as MCP tools consumable by Claude or any MCP-capable
 - Node.js >= 18
 - At least one \*arr service running and accessible
 
-## Install & Build
+## Install
+
+**Via npm (recommended):**
 
 ```bash
-npm install
-npm run build
+npm install -g mcp-arr-suite
+```
+
+**From source:**
+
+```bash
+git clone https://github.com/ismael9291/mcp-arr-suite.git
+cd mcp-arr-suite
+npm install && npm run build
 ```
 
 ## Configuration
@@ -35,14 +44,13 @@ All configuration is via environment variables. Set at least one service pair:
 
 ## MCP Client Setup
 
-Example Claude Desktop config:
+Example Claude Desktop config (npm install):
 
 ```json
 {
   "mcpServers": {
     "mcp-arr-suite": {
-      "command": "node",
-      "args": ["/path/to/mcpSuite/dist/index.js"],
+      "command": "mcp-arr-suite",
       "env": {
         "RADARR_URL": "http://localhost:7878",
         "RADARR_API_KEY": "...",
@@ -52,6 +60,13 @@ Example Claude Desktop config:
     }
   }
 }
+```
+
+If running from source, replace `"command": "mcp-arr-suite"` with:
+
+```json
+"command": "node",
+"args": ["/path/to/mcp-arr-suite/dist/index.js"],
 ```
 
 ## Tools
