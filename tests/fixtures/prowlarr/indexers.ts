@@ -1,4 +1,4 @@
-import type { Indexer, IndexerStats } from '../../../src/clients/arr-client.js';
+import type { Indexer, IndexerStats, ProwlarrHistoryRecord, ProwlarrApplication, Tag, DownloadClient } from '../../../src/clients/arr-client.js';
 
 export const prowlarrIndexerFixtures: Indexer[] = [
   {
@@ -90,5 +90,78 @@ export const prowlarrSearchResultFixtures = [
     seeders: 412,
     leechers: 23,
     categories: [{ id: 2000, name: 'Movies' }],
+  },
+];
+
+export const prowlarrHistoryFixtures: { records: ProwlarrHistoryRecord[]; totalRecords: number } = {
+  totalRecords: 2,
+  records: [
+    {
+      id: 101,
+      indexerId: 1,
+      indexer: 'NZBgeek',
+      date: '2024-05-15T14:00:00Z',
+      successful: true,
+      eventType: 'grabbed',
+      sourceTitle: 'Dune.Part.Two.2024.2160p.BluRay.REMUX-GROUP',
+      downloadId: 'abc123',
+      data: {},
+    },
+    {
+      id: 102,
+      indexerId: 3,
+      indexer: '1337x',
+      date: '2024-05-14T10:00:00Z',
+      successful: false,
+      eventType: 'grabFailed',
+      sourceTitle: 'Some.Show.S01E01-GROUP',
+      downloadId: undefined,
+      data: { reason: 'Indexer error' },
+    },
+  ],
+};
+
+export const prowlarrTagFixtures: Tag[] = [
+  { id: 1, label: 'vip' },
+  { id: 2, label: 'movies-only' },
+];
+
+export const prowlarrDownloadClientFixtures: DownloadClient[] = [
+  {
+    id: 1,
+    name: 'SABnzbd',
+    implementation: 'Sabnzbd',
+    implementationName: 'SABnzbd',
+    configContract: 'SabnzbdSettings',
+    enable: true,
+    protocol: 'usenet',
+    priority: 1,
+    removeCompletedDownloads: true,
+    removeFailedDownloads: true,
+    fields: [{ name: 'host', value: 'localhost' }],
+    tags: [],
+  },
+];
+
+export const prowlarrApplicationFixtures: ProwlarrApplication[] = [
+  {
+    id: 1,
+    name: 'Radarr',
+    implementation: 'Radarr',
+    implementationName: 'Radarr',
+    syncLevel: 'fullSync',
+    enable: true,
+    tags: [],
+    fields: [{ name: 'prowlarrUrl', value: 'http://localhost:9696' }],
+  },
+  {
+    id: 2,
+    name: 'Sonarr',
+    implementation: 'Sonarr',
+    implementationName: 'Sonarr',
+    syncLevel: 'fullSync',
+    enable: true,
+    tags: [1],
+    fields: [{ name: 'prowlarrUrl', value: 'http://localhost:9696' }],
   },
 ];
