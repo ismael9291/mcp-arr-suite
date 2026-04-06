@@ -1,4 +1,4 @@
-import type { Artist, Album, MetadataProfile } from '../../../src/clients/arr-client.js';
+import type { Artist, Album, MetadataProfile, TrackFile, LidarrHistoryRecord, LidarrBlocklistRecord, LidarrWantedRecord, DiskSpace } from '../../../src/clients/arr-client.js';
 
 export const artistFixtures: Artist[] = [
   {
@@ -143,6 +143,135 @@ export const metadataProfileFixtures: MetadataProfile[] = [
     skipPartsAndSets: true,
     skipSeriesSecondary: true,
   },
+];
+
+export const trackFileFixtures: TrackFile[] = [
+  {
+    id: 501,
+    artistId: 1,
+    albumId: 101,
+    path: '/music/Pink Floyd/The Dark Side of the Moon/01 - Speak to Me.flac',
+    size: 23_068_672,
+    dateAdded: '2024-01-15T10:00:00Z',
+    quality: { quality: { name: 'FLAC' } },
+    qualityCutoffNotMet: false,
+    mediaInfo: {
+      audioFormat: 'FLAC',
+      audioBitrate: 1_050,
+      audioChannels: 2,
+      audioBits: 24,
+      audioSampleRate: 44_100,
+    },
+  },
+  {
+    id: 502,
+    artistId: 1,
+    albumId: 101,
+    path: '/music/Pink Floyd/The Dark Side of the Moon/02 - Breathe.flac',
+    size: 31_457_280,
+    dateAdded: '2024-01-15T10:00:00Z',
+    quality: { quality: { name: 'FLAC' } },
+    qualityCutoffNotMet: false,
+    mediaInfo: {
+      audioFormat: 'FLAC',
+      audioBitrate: 980,
+      audioChannels: 2,
+      audioBits: 24,
+      audioSampleRate: 44_100,
+    },
+  },
+];
+
+export const lidarrHistoryFixture: LidarrHistoryRecord[] = [
+  {
+    id: 701,
+    artistId: 1,
+    albumId: 101,
+    sourceTitle: 'Pink Floyd - The Dark Side of the Moon (1973) [FLAC]',
+    quality: { quality: { id: 6, name: 'FLAC' } },
+    date: '2024-01-15T10:00:00Z',
+    eventType: 'downloadFolderImported',
+    data: { importedPath: '/music/Pink Floyd/The Dark Side of the Moon' },
+  },
+  {
+    id: 702,
+    artistId: 2,
+    albumId: 102,
+    sourceTitle: 'Radiohead - OK Computer (1997) [FLAC]',
+    quality: { quality: { id: 6, name: 'FLAC' } },
+    date: '2024-01-10T08:30:00Z',
+    eventType: 'grabbed',
+    data: { indexer: 'NZBgeek', nzbInfoUrl: '' },
+  },
+];
+
+export const lidarrBlocklistFixture: LidarrBlocklistRecord[] = [
+  {
+    id: 301,
+    artistId: 3,
+    sourceTitle: 'Brian Eno - Another Green World (corrupt release)',
+    quality: { quality: { id: 3, name: 'MP3-320' } },
+    date: '2024-01-05T12:00:00Z',
+    protocol: 'usenet',
+    indexer: 'NZBgeek',
+    message: 'Release was corrupt',
+  },
+];
+
+export const lidarrWantedMissingFixture: LidarrWantedRecord = {
+  page: 1,
+  pageSize: 20,
+  sortKey: 'releaseDate',
+  sortDirection: 'desc',
+  totalRecords: 1,
+  records: [
+    {
+      id: 103,
+      title: 'Wish You Were Here',
+      disambiguation: '',
+      overview: '',
+      artistId: 1,
+      foreignAlbumId: 'abcd1234-0000-0000-0000-000000000000',
+      monitored: true,
+      profileId: 1,
+      duration: 2580000,
+      albumType: 'Album',
+      genres: ['Rock'],
+      statistics: { trackFileCount: 0, trackCount: 5, totalTrackCount: 5, sizeOnDisk: 0, percentOfTracks: 0 },
+      releaseDate: '1975-09-12',
+      grabbed: false,
+    },
+  ],
+};
+
+export const lidarrWantedCutoffFixture: LidarrWantedRecord = {
+  page: 1,
+  pageSize: 20,
+  sortKey: 'releaseDate',
+  sortDirection: 'asc',
+  totalRecords: 1,
+  records: [
+    {
+      id: 102,
+      title: 'OK Computer',
+      disambiguation: '',
+      overview: '',
+      artistId: 2,
+      foreignAlbumId: 'cbf9cf2f-9f90-4f09-a18a-bbc0c30ae8e8',
+      monitored: true,
+      profileId: 1,
+      duration: 3312000,
+      albumType: 'Album',
+      genres: ['Alternative Rock'],
+      statistics: { trackFileCount: 12, trackCount: 12, totalTrackCount: 12, sizeOnDisk: 534_773_760, percentOfTracks: 100 },
+      releaseDate: '1997-05-21',
+      grabbed: false,
+    },
+  ],
+};
+
+export const lidarrDiskSpaceFixtures: DiskSpace[] = [
+  { path: '/music', label: 'Music Drive', freeSpace: 1_099_511_627_776, totalSpace: 4_398_046_511_104 },
 ];
 
 export const artistSearchResultFixtures = [

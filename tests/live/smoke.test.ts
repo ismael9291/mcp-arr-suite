@@ -436,6 +436,67 @@ if (clients.lidarr) {
         await callTool('lidarr_get_albums', { artistId });
       }
     });
+
+    it('new read-only tools respond', async () => {
+      await callTool('lidarr_get_disk_space');
+      await callTool('lidarr_get_history', { pageSize: 5 });
+      await callTool('lidarr_get_wanted_missing', { pageSize: 5 });
+      await callTool('lidarr_get_wanted_cutoff', { pageSize: 5 });
+      await callTool('lidarr_get_blocklist', { pageSize: 5 });
+    });
+
+    it('lidarr_get_disk_space returns formatted disk info', async () => {
+      const data = await callTool<{ count: number; disks: Array<{ path: string; freeSpace: string; totalSpace: string; freePercent: string }> }>('lidarr_get_disk_space');
+      expect(typeof data.count).toBe('number');
+      expect(Array.isArray(data.disks)).toBe(true);
+      if (data.disks.length > 0) {
+        expect(data.disks[0].freeSpace).toMatch(/\d+(\.\d+)? (B|KB|MB|GB|TB)/);
+        expect(data.disks[0].totalSpace).toMatch(/\d+(\.\d+)? (B|KB|MB|GB|TB)/);
+        expect(data.disks[0].freePercent).toMatch(/\d+\.\d+%/);
+      }
+    });
+
+    it('lidarr_get_track_files and lidarr_get_history respond for a test artist', async () => {
+      const artists = await callTool<PaginatedItems>('lidarr_get_artists', { limit: 5 });
+      const artistId = asOptionalNumber(process.env.LIDARR_TEST_ARTIST_ID) ?? artists.items?.[0]?.id as number | undefined;
+      if (!artistId) {
+        console.log('  [skip] no artist in library — skipping artist-specific tools');
+        return;
+      }
+      const files = await callTool<{ count: number; files: Array<Record<string, unknown>> }>('lidarr_get_track_files', { artistId });
+      expect(typeof files.count).toBe('number');
+      expect(Array.isArray(files.files)).toBe(true);
+
+      const history = await callTool<{ totalRecords: number; records: unknown[] }>('lidarr_get_history', { artistId, pageSize: 5 });
+      expect(typeof history.totalRecords).toBe('number');
+      expect(Array.isArray(history.records)).toBe(true);
+    });
+
+    if (enableCommandSmoke) {
+      it('lidarr_refresh_artist responds for a test artist', async () => {
+        const artists = await callTool<PaginatedItems>('lidarr_get_artists', { limit: 5 });
+        const artistId = asOptionalNumber(process.env.LIDARR_TEST_ARTIST_ID) ?? artists.items?.[0]?.id as number | undefined;
+        if (!artistId) return;
+        const data = await callTool<{ success: boolean; commandId: number }>('lidarr_refresh_artist', { artistId });
+        expect(data.success).toBe(true);
+        expect(typeof data.commandId).toBe('number');
+      });
+
+      it('lidarr_monitor_albums round-trip succeeds', async () => {
+        const artists = await callTool<PaginatedItems>('lidarr_get_artists', { limit: 5 });
+        const artistId = asOptionalNumber(process.env.LIDARR_TEST_ARTIST_ID) ?? artists.items?.[0]?.id as number | undefined;
+        if (!artistId) return;
+        const albums = await callTool<{ count: number; albums: Array<{ id: number; monitored: boolean }> }>('lidarr_get_albums', { artistId });
+        const album = albums.albums?.[0];
+        if (!album) {
+          console.log('  [skip] no albums for artist — skipping lidarr_monitor_albums');
+          return;
+        }
+        // Toggle monitored off then back to original state
+        await callTool('lidarr_monitor_albums', { albumIds: [album.id], monitored: !album.monitored });
+        await callTool('lidarr_monitor_albums', { albumIds: [album.id], monitored: album.monitored });
+      });
+    }
   });
 }
 

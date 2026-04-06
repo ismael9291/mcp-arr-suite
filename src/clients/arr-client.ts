@@ -326,6 +326,55 @@ export interface MetadataProfile {
   minPages?: number;
 }
 
+export interface TrackFile {
+  id: number;
+  artistId: number;
+  albumId: number;
+  path: string;
+  size: number;
+  dateAdded: string;
+  quality?: { quality?: { name: string } };
+  qualityCutoffNotMet?: boolean;
+  mediaInfo?: {
+    audioFormat?: string;
+    audioBitrate?: number;
+    audioChannels?: number;
+    audioBits?: number;
+    audioSampleRate?: number;
+  };
+}
+
+export interface LidarrHistoryRecord {
+  id: number;
+  artistId: number;
+  albumId: number;
+  sourceTitle: string;
+  quality: { quality: { id: number; name: string } };
+  date: string;
+  eventType: string;
+  data: Record<string, string>;
+}
+
+export interface LidarrBlocklistRecord {
+  id: number;
+  artistId: number;
+  sourceTitle: string;
+  quality: { quality: { id: number; name: string } };
+  date: string;
+  protocol: string;
+  indexer: string;
+  message: string;
+}
+
+export interface LidarrWantedRecord {
+  page: number;
+  pageSize: number;
+  sortKey: string;
+  sortDirection: string;
+  totalRecords: number;
+  records: Album[];
+}
+
 export interface DiskSpace {
   path: string;
   label: string;
@@ -1183,6 +1232,94 @@ export class LidarrClient extends ArrClient {
 
   async getMetadataProfiles(): Promise<MetadataProfile[]> {
     return this.request<MetadataProfile[]>('/metadataprofile');
+  }
+
+  async deleteArtist(artistId: number, deleteFiles = false, addImportListExclusion = false): Promise<void> {
+    await this.request<void>(
+      `/artist/${artistId}?deleteFiles=${deleteFiles}&addImportListExclusion=${addImportListExclusion}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  async updateArtist(artistId: number, changes: Partial<Artist>): Promise<Artist> {
+    const existing = await this.getArtistById(artistId);
+    return this.request<Artist>(`/artist/${artistId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ ...existing, ...changes }),
+    });
+  }
+
+  async refreshArtist(artistId: number): Promise<{ id: number }> {
+    return this.request<{ id: number }>('/command', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'RefreshArtist', artistId }),
+    });
+  }
+
+  async getTrackFiles(artistId: number): Promise<TrackFile[]> {
+    return this.request<TrackFile[]>(`/trackfile?artistId=${artistId}`);
+  }
+
+  async deleteTrackFile(fileId: number): Promise<void> {
+    await this.request<void>(`/trackfile/${fileId}`, { method: 'DELETE' });
+  }
+
+  async removeFromQueue(queueId: number, blocklist = false, removeFromClient = true): Promise<void> {
+    await this.request<void>(
+      `/queue/${queueId}?blocklist=${blocklist}&removeFromClient=${removeFromClient}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  async removeFromQueueBulk(ids: number[], blocklist = false, removeFromClient = true): Promise<void> {
+    await this.request<void>('/queue/bulk', {
+      method: 'DELETE',
+      body: JSON.stringify({ ids, blocklist, removeFromClient }),
+    });
+  }
+
+  async getWantedMissing(page = 1, pageSize = 20): Promise<LidarrWantedRecord> {
+    return this.request<LidarrWantedRecord>(
+      `/wanted/missing?page=${page}&pageSize=${pageSize}&sortKey=releaseDate&sortDirection=descending`
+    );
+  }
+
+  async getWantedCutoff(page = 1, pageSize = 20): Promise<LidarrWantedRecord> {
+    return this.request<LidarrWantedRecord>(
+      `/wanted/cutoff?page=${page}&pageSize=${pageSize}`
+    );
+  }
+
+  async getHistory(artistId?: number, page = 1, pageSize = 20): Promise<{ records: LidarrHistoryRecord[]; totalRecords: number }> {
+    const params = new URLSearchParams({
+      page: String(page),
+      pageSize: String(pageSize),
+      sortKey: 'date',
+      sortDirection: 'descending',
+    });
+    if (artistId !== undefined) params.set('artistId', String(artistId));
+    return this.request<{ records: LidarrHistoryRecord[]; totalRecords: number }>(`/history?${params}`);
+  }
+
+  async getBlocklist(page = 1, pageSize = 20): Promise<{ records: LidarrBlocklistRecord[]; totalRecords: number }> {
+    return this.request<{ records: LidarrBlocklistRecord[]; totalRecords: number }>(
+      `/blocklist?page=${page}&pageSize=${pageSize}&sortKey=date&sortDirection=descending`
+    );
+  }
+
+  async deleteFromBlocklist(blocklistId: number): Promise<void> {
+    await this.request<void>(`/blocklist/${blocklistId}`, { method: 'DELETE' });
+  }
+
+  async getDiskSpace(): Promise<DiskSpace[]> {
+    return this.request<DiskSpace[]>('/diskspace');
+  }
+
+  async monitorAlbums(albumIds: number[], monitored: boolean): Promise<void> {
+    await this.request<void>('/album/monitor', {
+      method: 'PUT',
+      body: JSON.stringify({ albumIds, monitored }),
+    });
   }
 }
 

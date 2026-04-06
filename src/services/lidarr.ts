@@ -5,6 +5,7 @@
 import type { ToolModule } from '../types.js';
 import { ok } from '../types.js';
 import { formatBytes, truncate, paginate, clampLimit, clampOffset, today, daysFromNow } from '../shared/formatting.js';
+import type { Artist } from '../clients/arr-client.js';
 
 export const lidarrModule: ToolModule = {
   tools: [
@@ -119,6 +120,157 @@ export const lidarrModule: ToolModule = {
           },
         },
         required: ['foreignArtistId', 'artistName', 'qualityProfileId', 'metadataProfileId', 'rootFolderPath'],
+      },
+    },
+    {
+      name: 'lidarr_delete_artist',
+      description: 'Delete an artist from Lidarr.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          artistId: { type: 'number', description: 'Artist ID (from lidarr_get_artists)' },
+          deleteFiles: { type: 'boolean', description: 'Delete track files from disk (default: false)' },
+          addImportListExclusion: { type: 'boolean', description: 'Add to import list exclusions (default: false)' },
+        },
+        required: ['artistId'],
+      },
+    },
+    {
+      name: 'lidarr_update_artist',
+      description: 'Update an artist in Lidarr (monitored state, quality profile, metadata profile, tags).',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          artistId: { type: 'number', description: 'Artist ID (from lidarr_get_artists)' },
+          monitored: { type: 'boolean', description: 'Monitor the artist' },
+          qualityProfileId: { type: 'number', description: 'Quality profile ID' },
+          metadataProfileId: { type: 'number', description: 'Metadata profile ID' },
+          tags: { type: 'array', items: { type: 'number' }, description: 'Tag IDs' },
+        },
+        required: ['artistId'],
+      },
+    },
+    {
+      name: 'lidarr_remove_from_queue',
+      description: 'Remove one or more items from the Lidarr download queue.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          ids: { type: 'array', items: { type: 'number' }, description: 'Queue item IDs to remove' },
+          blocklist: { type: 'boolean', description: 'Add to blocklist (default: false)' },
+          removeFromClient: { type: 'boolean', description: 'Remove from download client (default: true)' },
+        },
+        required: ['ids'],
+      },
+    },
+    {
+      name: 'lidarr_get_blocklist',
+      description: 'Get the Lidarr blocklist (previously failed downloads).',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          page: { type: 'number', description: 'Page number (default: 1)' },
+          pageSize: { type: 'number', description: 'Items per page (default: 20)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'lidarr_delete_from_blocklist',
+      description: 'Delete a single entry from the Lidarr blocklist.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          blocklistId: { type: 'number', description: 'Blocklist entry ID (from lidarr_get_blocklist)' },
+        },
+        required: ['blocklistId'],
+      },
+    },
+    {
+      name: 'lidarr_get_wanted_missing',
+      description: 'Get monitored albums that are missing from Lidarr.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          page: { type: 'number', description: 'Page number (default: 1)' },
+          pageSize: { type: 'number', description: 'Items per page (default: 20)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'lidarr_get_wanted_cutoff',
+      description: 'Get albums that do not meet their quality cutoff in Lidarr.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          page: { type: 'number', description: 'Page number (default: 1)' },
+          pageSize: { type: 'number', description: 'Items per page (default: 20)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'lidarr_get_disk_space',
+      description: 'Get disk space usage for Lidarr root folders.',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
+    {
+      name: 'lidarr_get_track_files',
+      description: 'Get track files for an artist in Lidarr.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          artistId: { type: 'number', description: 'Artist ID (from lidarr_get_artists)' },
+        },
+        required: ['artistId'],
+      },
+    },
+    {
+      name: 'lidarr_delete_track_file',
+      description: 'Delete a track file from disk in Lidarr.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          fileId: { type: 'number', description: 'Track file ID (from lidarr_get_track_files)' },
+        },
+        required: ['fileId'],
+      },
+    },
+    {
+      name: 'lidarr_refresh_artist',
+      description: 'Trigger a metadata refresh for an artist in Lidarr.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          artistId: { type: 'number', description: 'Artist ID (from lidarr_get_artists)' },
+        },
+        required: ['artistId'],
+      },
+    },
+    {
+      name: 'lidarr_get_history',
+      description: 'Get download history from Lidarr, optionally filtered by artist.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          artistId: { type: 'number', description: 'Filter by artist ID (optional)' },
+          page: { type: 'number', description: 'Page number (default: 1)' },
+          pageSize: { type: 'number', description: 'Items per page (default: 20)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'lidarr_monitor_albums',
+      description: 'Set the monitored state for one or more albums in Lidarr.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          albumIds: { type: 'array', items: { type: 'number' }, description: 'Album IDs to update' },
+          monitored: { type: 'boolean', description: 'Whether to monitor the albums' },
+        },
+        required: ['albumIds', 'monitored'],
       },
     },
   ],
@@ -287,6 +439,224 @@ export const lidarrModule: ToolModule = {
         id: added.id,
         path: added.path,
         monitored: added.monitored,
+      });
+    },
+
+    lidarr_delete_artist: async (args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const artistId = args.artistId as number;
+      const deleteFiles = (args.deleteFiles as boolean | undefined) ?? false;
+      const addImportListExclusion = (args.addImportListExclusion as boolean | undefined) ?? false;
+      const artist = await clients.lidarr.getArtistById(artistId);
+      await clients.lidarr.deleteArtist(artistId, deleteFiles, addImportListExclusion);
+      return ok({
+        success: true,
+        message: `Deleted "${artist.artistName}" from Lidarr`,
+        deletedFiles: deleteFiles,
+        addedToExclusions: addImportListExclusion,
+      });
+    },
+
+    lidarr_update_artist: async (args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const artistId = args.artistId as number;
+      const changes: Partial<Artist> = {};
+      if (args.monitored !== undefined) changes.monitored = args.monitored as boolean;
+      if (args.qualityProfileId !== undefined) changes.qualityProfileId = args.qualityProfileId as number;
+      if (args.metadataProfileId !== undefined) changes.metadataProfileId = args.metadataProfileId as number;
+      if (args.tags !== undefined) changes.tags = args.tags as number[];
+      const updated = await clients.lidarr.updateArtist(artistId, changes);
+      return ok({
+        success: true,
+        id: updated.id,
+        artistName: updated.artistName,
+        monitored: updated.monitored,
+        qualityProfileId: updated.qualityProfileId,
+        metadataProfileId: updated.metadataProfileId,
+        tags: updated.tags,
+      });
+    },
+
+    lidarr_remove_from_queue: async (args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const ids = args.ids as number[];
+      const blocklist = (args.blocklist as boolean | undefined) ?? false;
+      const removeFromClient = (args.removeFromClient as boolean | undefined) ?? true;
+      if (ids.length === 1) {
+        await clients.lidarr.removeFromQueue(ids[0], blocklist, removeFromClient);
+      } else {
+        await clients.lidarr.removeFromQueueBulk(ids, blocklist, removeFromClient);
+      }
+      return ok({
+        success: true,
+        message: `Removed ${ids.length} item(s) from queue`,
+        ids,
+        blocklisted: blocklist,
+        removedFromClient: removeFromClient,
+      });
+    },
+
+    lidarr_get_blocklist: async (args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const page = (args.page as number | undefined) ?? 1;
+      const pageSize = (args.pageSize as number | undefined) ?? 20;
+      const result = await clients.lidarr.getBlocklist(page, pageSize);
+      return ok({
+        totalRecords: result.totalRecords,
+        returned: result.records.length,
+        entries: result.records.map(r => ({
+          id: r.id,
+          artistId: r.artistId,
+          sourceTitle: r.sourceTitle,
+          quality: r.quality?.quality?.name,
+          date: r.date,
+          protocol: r.protocol,
+          indexer: r.indexer,
+          message: r.message,
+        })),
+      });
+    },
+
+    lidarr_delete_from_blocklist: async (args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const blocklistId = args.blocklistId as number;
+      await clients.lidarr.deleteFromBlocklist(blocklistId);
+      return ok({ success: true, message: `Deleted blocklist entry ${blocklistId}` });
+    },
+
+    lidarr_get_wanted_missing: async (args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const page = (args.page as number | undefined) ?? 1;
+      const pageSize = (args.pageSize as number | undefined) ?? 20;
+      const result = await clients.lidarr.getWantedMissing(page, pageSize);
+      return ok({
+        totalRecords: result.totalRecords,
+        page: result.page,
+        pageSize: result.pageSize,
+        returned: result.records.length,
+        hasMore: result.page * result.pageSize < result.totalRecords,
+        albums: result.records.map(a => ({
+          id: a.id,
+          title: a.title,
+          artistId: a.artistId,
+          monitored: a.monitored,
+          releaseDate: a.releaseDate,
+        })),
+      });
+    },
+
+    lidarr_get_wanted_cutoff: async (args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const page = (args.page as number | undefined) ?? 1;
+      const pageSize = (args.pageSize as number | undefined) ?? 20;
+      const result = await clients.lidarr.getWantedCutoff(page, pageSize);
+      return ok({
+        totalRecords: result.totalRecords,
+        page: result.page,
+        pageSize: result.pageSize,
+        returned: result.records.length,
+        hasMore: result.page * result.pageSize < result.totalRecords,
+        albums: result.records.map(a => ({
+          id: a.id,
+          title: a.title,
+          artistId: a.artistId,
+          monitored: a.monitored,
+          releaseDate: a.releaseDate,
+        })),
+      });
+    },
+
+    lidarr_get_disk_space: async (_args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const diskSpace = await clients.lidarr.getDiskSpace();
+      return ok({
+        count: diskSpace.length,
+        disks: diskSpace.map(d => ({
+          path: d.path,
+          label: d.label,
+          freeSpace: formatBytes(d.freeSpace),
+          totalSpace: formatBytes(d.totalSpace),
+          usedSpace: formatBytes(d.totalSpace - d.freeSpace),
+          freePercent: d.totalSpace > 0
+            ? `${((d.freeSpace / d.totalSpace) * 100).toFixed(1)}%`
+            : 'unknown',
+        })),
+      });
+    },
+
+    lidarr_get_track_files: async (args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const artistId = args.artistId as number;
+      const files = await clients.lidarr.getTrackFiles(artistId);
+      return ok({
+        count: files.length,
+        files: files.map(f => ({
+          id: f.id,
+          path: f.path,
+          size: formatBytes(f.size),
+          dateAdded: f.dateAdded,
+          quality: f.quality?.quality?.name,
+          audioFormat: f.mediaInfo?.audioFormat,
+          audioChannels: f.mediaInfo?.audioChannels,
+        })),
+      });
+    },
+
+    lidarr_delete_track_file: async (args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const fileId = args.fileId as number;
+      await clients.lidarr.deleteTrackFile(fileId);
+      return ok({ success: true, message: `Deleted track file ${fileId}` });
+    },
+
+    lidarr_refresh_artist: async (args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const artistId = args.artistId as number;
+      const [artist, command] = await Promise.all([
+        clients.lidarr.getArtistById(artistId),
+        clients.lidarr.refreshArtist(artistId),
+      ]);
+      return ok({
+        success: true,
+        message: `Refresh triggered for "${artist.artistName}"`,
+        artist: { id: artist.id, artistName: artist.artistName },
+        commandId: command.id,
+      });
+    },
+
+    lidarr_get_history: async (args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const artistId = args.artistId as number | undefined;
+      const page = (args.page as number | undefined) ?? 1;
+      const pageSize = (args.pageSize as number | undefined) ?? 20;
+      const result = await clients.lidarr.getHistory(artistId, page, pageSize);
+      return ok({
+        totalRecords: result.totalRecords,
+        returned: result.records.length,
+        ...(artistId !== undefined ? { artistId } : {}),
+        records: result.records.map(r => ({
+          id: r.id,
+          artistId: r.artistId,
+          albumId: r.albumId,
+          sourceTitle: r.sourceTitle,
+          quality: r.quality?.quality?.name,
+          date: r.date,
+          eventType: r.eventType,
+          data: r.data,
+        })),
+      });
+    },
+
+    lidarr_monitor_albums: async (args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const albumIds = args.albumIds as number[];
+      const monitored = args.monitored as boolean;
+      await clients.lidarr.monitorAlbums(albumIds, monitored);
+      return ok({
+        success: true,
+        message: `Set ${albumIds.length} album(s) to ${monitored ? 'monitored' : 'unmonitored'}`,
+        albumIds,
+        monitored,
       });
     },
   },
