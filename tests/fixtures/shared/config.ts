@@ -1,4 +1,4 @@
-import type { QualityProfile, HealthCheck, RootFolder, DownloadClient, NamingConfig, MediaManagementConfig, QualityDefinition, Tag, Indexer, SystemStatus, CustomFormat } from '../../../src/clients/arr-client.js';
+import type { QualityProfile, HealthCheck, RootFolder, DownloadClient, NamingConfig, MediaManagementConfig, QualityDefinition, Tag, Indexer, SystemStatus, CustomFormat, SystemTask, LogPage, Notification, ImportList } from '../../../src/clients/arr-client.js';
 
 export const systemStatusFixture: SystemStatus = {
   appName: 'Radarr',
@@ -180,6 +180,127 @@ export const customFormatFixtures: CustomFormat[] = [
         fields: [{ name: 'value', value: '\\bx265\\b|\\bHEVC\\b' }],
       },
     ],
+  },
+];
+
+export const systemTaskFixtures: SystemTask[] = [
+  {
+    id: 1,
+    name: 'Housekeeping',
+    taskName: 'Housekeeping',
+    interval: 360,
+    lastExecution: '2024-03-01T00:00:00Z',
+    lastStartTime: '2024-03-01T00:00:00Z',
+    nextExecution: '2024-03-01T06:00:00Z',
+    lastDuration: '00:00:01.2340000',
+    isRunning: false,
+  },
+  {
+    id: 2,
+    name: 'RSS Sync',
+    taskName: 'RssSync',
+    interval: 60,
+    lastExecution: '2024-03-01T01:00:00Z',
+    lastStartTime: '2024-03-01T01:00:00Z',
+    nextExecution: '2024-03-01T02:00:00Z',
+    lastDuration: '00:00:05.0000000',
+    isRunning: true,
+  },
+];
+
+export const logPageFixture: LogPage = {
+  page: 1,
+  pageSize: 20,
+  sortKey: 'time',
+  sortDirection: 'descending',
+  totalRecords: 2,
+  records: [
+    {
+      id: 101,
+      time: '2024-03-01T02:00:00Z',
+      level: 'info',
+      logger: 'NzbDrone.Core.Download.TrackedDownloads.TrackedDownloadService',
+      message: 'Processing download',
+    },
+    {
+      id: 100,
+      time: '2024-03-01T01:59:00Z',
+      level: 'warn',
+      logger: 'NzbDrone.Core.Parser',
+      message: 'Unable to parse quality',
+      exception: 'ParseException: ...',
+      exceptionType: 'ParseException',
+    },
+  ],
+};
+
+export const notificationFixtures: Notification[] = [
+  {
+    id: 1,
+    name: 'Slack',
+    implementation: 'Slack',
+    implementationName: 'Slack',
+    onGrab: true,
+    onDownload: true,
+    onUpgrade: true,
+    onRename: false,
+    onHealthIssue: true,
+    onApplicationUpdate: false,
+    supportsOnGrab: true,
+    supportsOnDownload: true,
+    supportsOnUpgrade: true,
+    supportsOnRename: true,
+    supportsOnHealthIssue: true,
+    supportsOnApplicationUpdate: true,
+    tags: [],
+    fields: [{ name: 'webHookUrl', value: 'https://hooks.slack.com/services/xxx' }],
+  },
+  {
+    id: 2,
+    name: 'Webhook',
+    implementation: 'Webhook',
+    implementationName: 'Webhook',
+    onGrab: false,
+    onDownload: true,
+    onUpgrade: false,
+    onRename: false,
+    onHealthIssue: false,
+    onApplicationUpdate: false,
+    supportsOnGrab: true,
+    supportsOnDownload: true,
+    supportsOnUpgrade: true,
+    supportsOnRename: true,
+    supportsOnHealthIssue: true,
+    supportsOnApplicationUpdate: true,
+    tags: [1],
+    fields: [{ name: 'url', value: 'https://example.com/webhook' }],
+  },
+];
+
+export const importListFixtures: ImportList[] = [
+  {
+    id: 1,
+    name: 'Trakt Popular',
+    implementation: 'TraktPopularList',
+    implementationName: 'Trakt Popular',
+    enabled: true,
+    enableAuto: false,
+    shouldMonitor: true,
+    qualityProfileId: 1,
+    tags: [],
+    fields: [{ name: 'accessToken', value: 'xxx' }],
+  },
+  {
+    id: 2,
+    name: 'IMDb Watchlist',
+    implementation: 'IMDbList',
+    implementationName: 'IMDb List',
+    enabled: false,
+    enableAuto: true,
+    shouldMonitor: true,
+    qualityProfileId: 1,
+    tags: [1],
+    fields: [{ name: 'listId', value: 'ls012345678' }],
   },
 ];
 

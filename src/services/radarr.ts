@@ -277,6 +277,149 @@ export const radarrModule: ToolModule = {
       inputSchema: { type: 'object' as const, properties: {}, required: [] },
     },
     {
+      name: 'radarr_get_custom_format',
+      description: 'Get a single custom format by ID, including full specification details.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          formatId: { type: 'number', description: 'Custom format ID (from radarr_list_custom_formats)' },
+        },
+        required: ['formatId'],
+      },
+    },
+    {
+      name: 'radarr_create_custom_format',
+      description: 'Create a new custom format in Radarr. Pass a full specifications array to define matching rules.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          name: { type: 'string', description: 'Custom format name' },
+          includeWhenRenaming: { type: 'boolean', description: 'Include custom format token in file rename' },
+          specifications: {
+            type: 'array',
+            description: 'Array of specification objects defining matching rules',
+            items: {
+              type: 'object',
+              properties: {
+                name: { type: 'string' },
+                implementation: { type: 'string', description: 'e.g. ReleaseTitleSpecification' },
+                negate: { type: 'boolean' },
+                required: { type: 'boolean' },
+                fields: {
+                  type: 'array',
+                  items: { type: 'object', properties: { name: { type: 'string' }, value: {} }, required: ['name', 'value'] },
+                },
+              },
+              required: ['name', 'implementation', 'negate', 'required', 'fields'],
+            },
+          },
+        },
+        required: ['name', 'specifications'],
+      },
+    },
+    {
+      name: 'radarr_update_custom_format',
+      description: 'Update an existing custom format. Fetches the current format first then applies your changes. Only provide fields you want to change.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          formatId: { type: 'number', description: 'Custom format ID to update' },
+          name: { type: 'string', description: 'New name (optional)' },
+          includeWhenRenaming: { type: 'boolean', description: 'Update include-when-renaming flag (optional)' },
+          specifications: {
+            type: 'array',
+            description: 'Full replacement specifications array (optional — replaces all specs if provided)',
+            items: {
+              type: 'object',
+              properties: {
+                name: { type: 'string' },
+                implementation: { type: 'string' },
+                negate: { type: 'boolean' },
+                required: { type: 'boolean' },
+                fields: {
+                  type: 'array',
+                  items: { type: 'object', properties: { name: { type: 'string' }, value: {} }, required: ['name', 'value'] },
+                },
+              },
+              required: ['name', 'implementation', 'negate', 'required', 'fields'],
+            },
+          },
+        },
+        required: ['formatId'],
+      },
+    },
+    {
+      name: 'radarr_delete_custom_format',
+      description: 'Delete a custom format from Radarr by ID.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          formatId: { type: 'number', description: 'Custom format ID to delete' },
+        },
+        required: ['formatId'],
+      },
+    },
+    {
+      name: 'radarr_get_system_tasks',
+      description: 'List all scheduled background tasks in Radarr with their last/next run times and current status.',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
+    {
+      name: 'radarr_get_logs',
+      description: 'Fetch recent application log entries from Radarr.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          pageSize: { type: 'number', description: 'Number of log entries to return (default: 20, max: 100)' },
+          page: { type: 'number', description: 'Page number (default: 1)' },
+          level: { type: 'string', enum: ['trace', 'debug', 'info', 'warn', 'error', 'fatal'], description: 'Filter by log level (optional)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'radarr_trigger_backup',
+      description: 'Create an on-demand backup of Radarr configuration and database.',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
+    {
+      name: 'radarr_get_notifications',
+      description: 'List all configured notification providers in Radarr (webhooks, email, Slack, etc.).',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
+    {
+      name: 'radarr_update_quality_definition',
+      description: 'Update the min/max/preferred size limits for a quality tier in Radarr. WARNING: misconfigured sizes can block all imports — verify values before applying.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          definitionId: { type: 'number', description: 'Quality definition ID (from radarr_review_setup)' },
+          minSize: { type: 'number', description: 'Minimum size in MB (optional)' },
+          maxSize: { type: 'number', description: 'Maximum size in MB, use 0 for unlimited (optional)' },
+          preferredSize: { type: 'number', description: 'Preferred size in MB (optional)' },
+        },
+        required: ['definitionId'],
+      },
+    },
+    {
+      name: 'radarr_get_import_lists',
+      description: 'List all configured import list sources in Radarr (Trakt, IMDb, Plex Watchlist, etc.).',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
+    {
+      name: 'radarr_update_import_list',
+      description: 'Update an import list in Radarr — primarily used to enable or disable it.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          listId: { type: 'number', description: 'Import list ID (from radarr_get_import_lists)' },
+          enabled: { type: 'boolean', description: 'Enable or disable the import list (optional)' },
+          enableAuto: { type: 'boolean', description: 'Enable automatic add for matched items (optional)' },
+        },
+        required: ['listId'],
+      },
+    },
+    {
       name: 'radarr_create_tag',
       description: 'Create a new tag in Radarr.',
       inputSchema: {
@@ -788,6 +931,206 @@ export const radarrModule: ToolModule = {
           includeWhenRenaming: f.includeCustomFormatWhenRenaming,
           specifications: f.specifications.map(s => ({ name: s.name, implementation: s.implementationName ?? s.implementation, negate: s.negate, required: s.required })),
         })),
+      });
+    },
+
+    radarr_get_custom_format: async (args, clients) => {
+      if (!clients.radarr) throw new Error('Radarr is not configured');
+      const formatId = args.formatId as number;
+      const f = await clients.radarr.getCustomFormat(formatId);
+      return ok({
+        id: f.id,
+        name: f.name,
+        includeWhenRenaming: f.includeCustomFormatWhenRenaming,
+        specifications: f.specifications.map(s => ({
+          id: s.id,
+          name: s.name,
+          implementation: s.implementationName ?? s.implementation,
+          negate: s.negate,
+          required: s.required,
+          fields: s.fields,
+        })),
+      });
+    },
+
+    radarr_create_custom_format: async (args, clients) => {
+      if (!clients.radarr) throw new Error('Radarr is not configured');
+      const { name, includeWhenRenaming, specifications } = args as {
+        name: string;
+        includeWhenRenaming?: boolean;
+        specifications: Array<{ name: string; implementation: string; negate: boolean; required: boolean; fields: Array<{ name: string; value: unknown }> }>;
+      };
+      const created = await clients.radarr.createCustomFormat({
+        name,
+        includeCustomFormatWhenRenaming: includeWhenRenaming ?? false,
+        specifications,
+      });
+      return ok({
+        success: true,
+        message: `Created custom format "${created.name}"`,
+        id: created.id,
+        name: created.name,
+      });
+    },
+
+    radarr_update_custom_format: async (args, clients) => {
+      if (!clients.radarr) throw new Error('Radarr is not configured');
+      const { formatId, name, includeWhenRenaming, specifications } = args as {
+        formatId: number;
+        name?: string;
+        includeWhenRenaming?: boolean;
+        specifications?: Array<{ name: string; implementation: string; negate: boolean; required: boolean; fields: Array<{ name: string; value: unknown }> }>;
+      };
+      const existing = await clients.radarr.getCustomFormat(formatId);
+      if (name !== undefined) existing.name = name;
+      if (includeWhenRenaming !== undefined) existing.includeCustomFormatWhenRenaming = includeWhenRenaming;
+      if (specifications !== undefined) existing.specifications = specifications;
+      const updated = await clients.radarr.updateCustomFormat(formatId, existing);
+      return ok({
+        success: true,
+        message: `Updated custom format "${updated.name}"`,
+        id: updated.id,
+        name: updated.name,
+      });
+    },
+
+    radarr_delete_custom_format: async (args, clients) => {
+      if (!clients.radarr) throw new Error('Radarr is not configured');
+      const formatId = args.formatId as number;
+      await clients.radarr.deleteCustomFormat(formatId);
+      return ok({ success: true, message: `Deleted custom format ${formatId}` });
+    },
+
+    radarr_get_system_tasks: async (_args, clients) => {
+      if (!clients.radarr) throw new Error('Radarr is not configured');
+      const tasks = await clients.radarr.getSystemTasks();
+      return ok({
+        count: tasks.length,
+        tasks: tasks.map(t => ({
+          name: t.name,
+          taskName: t.taskName,
+          intervalHours: t.interval / 60,
+          lastExecution: t.lastExecution,
+          nextExecution: t.nextExecution,
+          lastDuration: t.lastDuration,
+          isRunning: t.isRunning,
+        })),
+      });
+    },
+
+    radarr_get_logs: async (args, clients) => {
+      if (!clients.radarr) throw new Error('Radarr is not configured');
+      const page = (args.page as number | undefined) ?? 1;
+      const pageSize = Math.min((args.pageSize as number | undefined) ?? 20, 100);
+      const level = args.level as string | undefined;
+      const result = await clients.radarr.getLogs(page, pageSize, level);
+      return ok({
+        page: result.page,
+        pageSize: result.pageSize,
+        totalRecords: result.totalRecords,
+        records: result.records.map(r => ({
+          time: r.time,
+          level: r.level,
+          logger: r.logger,
+          message: r.message,
+          ...(r.exception ? { exception: r.exception } : {}),
+          ...(r.exceptionType ? { exceptionType: r.exceptionType } : {}),
+        })),
+      });
+    },
+
+    radarr_trigger_backup: async (_args, clients) => {
+      if (!clients.radarr) throw new Error('Radarr is not configured');
+      const result = await clients.radarr.triggerBackup();
+      return ok({ success: true, message: 'Backup triggered', commandId: result.id });
+    },
+
+    radarr_get_notifications: async (_args, clients) => {
+      if (!clients.radarr) throw new Error('Radarr is not configured');
+      const notifications = await clients.radarr.getNotifications();
+      return ok({
+        count: notifications.length,
+        notifications: notifications.map(n => ({
+          id: n.id,
+          name: n.name,
+          implementation: n.implementationName,
+          tags: n.tags,
+          triggers: {
+            onGrab: n.onGrab,
+            onDownload: n.onDownload,
+            onUpgrade: n.onUpgrade,
+            onRename: n.onRename,
+            onHealthIssue: n.onHealthIssue,
+            onApplicationUpdate: n.onApplicationUpdate,
+          },
+        })),
+      });
+    },
+
+    radarr_update_quality_definition: async (args, clients) => {
+      if (!clients.radarr) throw new Error('Radarr is not configured');
+      const { definitionId, minSize, maxSize, preferredSize } = args as {
+        definitionId: number;
+        minSize?: number;
+        maxSize?: number;
+        preferredSize?: number;
+      };
+      const definitions = await clients.radarr.getQualityDefinitions();
+      const existing = definitions.find(d => d.id === definitionId);
+      if (!existing) return { content: [{ type: 'text' as const, text: JSON.stringify({ isError: true, message: `Quality definition ${definitionId} not found` }) }], isError: true };
+      if (minSize !== undefined) existing.minSize = minSize;
+      if (maxSize !== undefined) existing.maxSize = maxSize;
+      if (preferredSize !== undefined) existing.preferredSize = preferredSize;
+      const updated = await clients.radarr.updateQualityDefinition(definitionId, existing);
+      return ok({
+        success: true,
+        message: `Updated quality definition "${updated.title}"`,
+        id: updated.id,
+        title: updated.title,
+        minSize: updated.minSize,
+        maxSize: updated.maxSize,
+        preferredSize: updated.preferredSize,
+      });
+    },
+
+    radarr_get_import_lists: async (_args, clients) => {
+      if (!clients.radarr) throw new Error('Radarr is not configured');
+      const lists = await clients.radarr.getImportLists();
+      return ok({
+        count: lists.length,
+        importLists: lists.map(l => ({
+          id: l.id,
+          name: l.name,
+          implementation: l.implementationName,
+          enabled: l.enabled,
+          enableAuto: l.enableAuto,
+          shouldMonitor: l.shouldMonitor,
+          qualityProfileId: l.qualityProfileId,
+          tags: l.tags,
+        })),
+      });
+    },
+
+    radarr_update_import_list: async (args, clients) => {
+      if (!clients.radarr) throw new Error('Radarr is not configured');
+      const { listId, enabled, enableAuto } = args as {
+        listId: number;
+        enabled?: boolean;
+        enableAuto?: boolean;
+      };
+      const lists = await clients.radarr.getImportLists();
+      const existing = lists.find(l => l.id === listId);
+      if (!existing) return { content: [{ type: 'text' as const, text: JSON.stringify({ isError: true, message: `Import list ${listId} not found` }) }], isError: true };
+      if (enabled !== undefined) existing.enabled = enabled;
+      if (enableAuto !== undefined) existing.enableAuto = enableAuto;
+      const updated = await clients.radarr.updateImportList(listId, existing);
+      return ok({
+        success: true,
+        message: `Updated import list "${updated.name}"`,
+        id: updated.id,
+        name: updated.name,
+        enabled: updated.enabled,
+        enableAuto: updated.enableAuto,
       });
     },
 

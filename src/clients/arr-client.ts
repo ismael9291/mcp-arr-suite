@@ -499,6 +499,71 @@ export interface CustomFormat {
   }>;
 }
 
+export interface ImportList {
+  id: number;
+  name: string;
+  implementation: string;
+  implementationName: string;
+  enabled: boolean;
+  enableAuto: boolean;
+  shouldMonitor: boolean;
+  qualityProfileId: number;
+  tags: number[];
+  fields: Array<{ name: string; value: unknown }>;
+}
+
+export interface Notification {
+  id: number;
+  name: string;
+  implementation: string;
+  implementationName: string;
+  onGrab: boolean;
+  onDownload: boolean;
+  onUpgrade: boolean;
+  onRename: boolean;
+  onHealthIssue: boolean;
+  onApplicationUpdate: boolean;
+  supportsOnGrab: boolean;
+  supportsOnDownload: boolean;
+  supportsOnUpgrade: boolean;
+  supportsOnRename: boolean;
+  supportsOnHealthIssue: boolean;
+  supportsOnApplicationUpdate: boolean;
+  tags: number[];
+  fields: Array<{ name: string; value: unknown }>;
+}
+
+export interface SystemTask {
+  id: number;
+  name: string;
+  taskName: string;
+  interval: number;
+  lastExecution: string;
+  lastStartTime: string;
+  nextExecution: string;
+  lastDuration: string;
+  isRunning: boolean;
+}
+
+export interface LogEntry {
+  id: number;
+  time: string;
+  level: string;
+  logger: string;
+  message: string;
+  exception?: string;
+  exceptionType?: string;
+}
+
+export interface LogPage {
+  page: number;
+  pageSize: number;
+  sortKey: string;
+  sortDirection: string;
+  totalRecords: number;
+  records: LogEntry[];
+}
+
 export interface ProwlarrApplication {
   id: number;
   name: string;
@@ -608,6 +673,13 @@ export class ArrClient {
     return this.request<QualityDefinition[]>('/qualitydefinition');
   }
 
+  async updateQualityDefinition(id: number, definition: QualityDefinition): Promise<QualityDefinition> {
+    return this.request<QualityDefinition>(`/qualitydefinition/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(definition),
+    });
+  }
+
   async getDownloadClients(): Promise<DownloadClient[]> {
     return this.request<DownloadClient[]>('/downloadclient');
   }
@@ -649,6 +721,57 @@ export class ArrClient {
 
   async getCustomFormats(): Promise<CustomFormat[]> {
     return this.request<CustomFormat[]>('/customformat');
+  }
+
+  async getCustomFormat(id: number): Promise<CustomFormat> {
+    return this.request<CustomFormat>(`/customformat/${id}`);
+  }
+
+  async createCustomFormat(format: Omit<CustomFormat, 'id'>): Promise<CustomFormat> {
+    return this.request<CustomFormat>('/customformat', {
+      method: 'POST',
+      body: JSON.stringify(format),
+    });
+  }
+
+  async updateCustomFormat(id: number, format: CustomFormat): Promise<CustomFormat> {
+    return this.request<CustomFormat>(`/customformat/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(format),
+    });
+  }
+
+  async deleteCustomFormat(id: number): Promise<void> {
+    await this.request<void>(`/customformat/${id}`, { method: 'DELETE' });
+  }
+
+  async getSystemTasks(): Promise<SystemTask[]> {
+    return this.request<SystemTask[]>('/system/task');
+  }
+
+  async getLogs(page: number, pageSize: number, level?: string): Promise<LogPage> {
+    const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize), sortKey: 'time', sortDirection: 'descending' });
+    if (level) params.set('level', level);
+    return this.request<LogPage>(`/log?${params}`);
+  }
+
+  async triggerBackup(): Promise<{ id: number }> {
+    return this.runCommand('Backup');
+  }
+
+  async getNotifications(): Promise<Notification[]> {
+    return this.request<Notification[]>('/notification');
+  }
+
+  async getImportLists(): Promise<ImportList[]> {
+    return this.request<ImportList[]>('/importlist');
+  }
+
+  async updateImportList(id: number, importList: ImportList): Promise<ImportList> {
+    return this.request<ImportList>(`/importlist/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(importList),
+    });
   }
 
   async createTag(label: string): Promise<Tag> {

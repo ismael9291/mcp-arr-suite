@@ -14,7 +14,7 @@ import {
   sonarrImportExclusionFixtures,
   releaseFixtures,
 } from '../../fixtures/sonarr/series.js';
-import { qualityProfileFixtures, customFormatFixtures, tagFixtures } from '../../fixtures/shared/config.js';
+import { qualityProfileFixtures, customFormatFixtures, tagFixtures, systemTaskFixtures, logPageFixture, notificationFixtures, qualityDefinitionFixtures, importListFixtures } from '../../fixtures/shared/config.js';
 
 const BASE = 'http://sonarr.test';
 const KEY = 'test-key';
@@ -353,6 +353,361 @@ describe('sonarr_list_custom_formats', () => {
     const result = await sonarrModule.handlers['sonarr_list_custom_formats']({}, clients);
     const data = JSON.parse(result.content[0].text);
     expect(data.customFormats[0].specifications[0].implementation).toBe('Release Title');
+  });
+});
+
+// ─── sonarr_get_custom_format ─────────────────────────────────────────────────
+
+describe('sonarr_get_custom_format', () => {
+  it('returns full format details by ID', async () => {
+    const fmt = customFormatFixtures[0];
+    mswServer.use(http.get(`${API}/customformat/${fmt.id}`, () => HttpResponse.json(fmt)));
+    const result = await sonarrModule.handlers['sonarr_get_custom_format']({ formatId: fmt.id }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.id).toBe(fmt.id);
+    expect(data.name).toBe(fmt.name);
+    expect(Array.isArray(data.specifications)).toBe(true);
+  });
+
+  it('includes spec id and fields in response', async () => {
+    const fmt = customFormatFixtures[0];
+    mswServer.use(http.get(`${API}/customformat/${fmt.id}`, () => HttpResponse.json(fmt)));
+    const result = await sonarrModule.handlers['sonarr_get_custom_format']({ formatId: fmt.id }, clients);
+    const data = JSON.parse(result.content[0].text);
+    const spec = data.specifications[0];
+    expect(spec).toHaveProperty('id');
+    expect(spec).toHaveProperty('fields');
+  });
+
+  it('throws when sonarr is not configured', async () => {
+    await expect(sonarrModule.handlers['sonarr_get_custom_format']({ formatId: 1 }, {})).rejects.toThrow('Sonarr is not configured');
+  });
+});
+
+// ─── sonarr_create_custom_format ──────────────────────────────────────────────
+
+describe('sonarr_create_custom_format', () => {
+  it('posts format and returns id and name', async () => {
+    const created = { ...customFormatFixtures[0], id: 99, name: 'DV' };
+    mswServer.use(http.post(`${API}/customformat`, () => HttpResponse.json(created, { status: 201 })));
+    const result = await sonarrModule.handlers['sonarr_create_custom_format']({
+      name: 'DV',
+      specifications: customFormatFixtures[0].specifications,
+    }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.id).toBe(99);
+    expect(data.name).toBe('DV');
+  });
+
+  it('defaults includeWhenRenaming to false when not provided', async () => {
+    let capturedBody: unknown;
+    const created = { ...customFormatFixtures[0], id: 10, name: 'Test' };
+    mswServer.use(http.post(`${API}/customformat`, async ({ request }) => {
+      capturedBody = await request.json();
+      return HttpResponse.json(created, { status: 201 });
+    }));
+    await sonarrModule.handlers['sonarr_create_custom_format']({ name: 'Test', specifications: [] }, clients);
+    expect((capturedBody as { includeCustomFormatWhenRenaming: boolean }).includeCustomFormatWhenRenaming).toBe(false);
+  });
+
+  it('throws when sonarr is not configured', async () => {
+    await expect(sonarrModule.handlers['sonarr_create_custom_format']({ name: 'x', specifications: [] }, {})).rejects.toThrow('Sonarr is not configured');
+  });
+});
+
+// ─── sonarr_update_custom_format ──────────────────────────────────────────────
+
+describe('sonarr_update_custom_format', () => {
+  it('fetches existing format then PUTs with updated name', async () => {
+    const fmt = customFormatFixtures[0];
+    const updated = { ...fmt, name: 'HDR10+' };
+    mswServer.use(
+      http.get(`${API}/customformat/${fmt.id}`, () => HttpResponse.json(fmt)),
+      http.put(`${API}/customformat/${fmt.id}`, () => HttpResponse.json(updated)),
+    );
+    const result = await sonarrModule.handlers['sonarr_update_custom_format']({ formatId: fmt.id, name: 'HDR10+' }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.name).toBe('HDR10+');
+  });
+
+  it('replaces specifications when provided', async () => {
+    const fmt = customFormatFixtures[0];
+    let capturedBody: unknown;
+    mswServer.use(
+      http.get(`${API}/customformat/${fmt.id}`, () => HttpResponse.json(fmt)),
+      http.put(`${API}/customformat/${fmt.id}`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json({ ...fmt, specifications: [] });
+      }),
+    );
+    await sonarrModule.handlers['sonarr_update_custom_format']({ formatId: fmt.id, specifications: [] }, clients);
+    expect((capturedBody as { specifications: unknown[] }).specifications).toEqual([]);
+  });
+
+  it('throws when sonarr is not configured', async () => {
+    await expect(sonarrModule.handlers['sonarr_update_custom_format']({ formatId: 1 }, {})).rejects.toThrow('Sonarr is not configured');
+  });
+});
+
+// ─── sonarr_delete_custom_format ──────────────────────────────────────────────
+
+describe('sonarr_delete_custom_format', () => {
+  it('deletes format and returns success', async () => {
+    const fmt = customFormatFixtures[0];
+    mswServer.use(http.delete(`${API}/customformat/${fmt.id}`, () => HttpResponse.json({})));
+    const result = await sonarrModule.handlers['sonarr_delete_custom_format']({ formatId: fmt.id }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.message).toContain(`${fmt.id}`);
+  });
+
+  it('throws when sonarr is not configured', async () => {
+    await expect(sonarrModule.handlers['sonarr_delete_custom_format']({ formatId: 1 }, {})).rejects.toThrow('Sonarr is not configured');
+  });
+});
+
+// ─── sonarr_get_system_tasks ──────────────────────────────────────────────────
+
+describe('sonarr_get_system_tasks', () => {
+  it('returns count and task list', async () => {
+    mswServer.use(http.get(`${API}/system/task`, () => HttpResponse.json(systemTaskFixtures)));
+    const result = await sonarrModule.handlers['sonarr_get_system_tasks']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.count).toBe(systemTaskFixtures.length);
+    expect(data.tasks[0]).toHaveProperty('name');
+    expect(data.tasks[0]).toHaveProperty('taskName');
+    expect(data.tasks[0]).toHaveProperty('nextExecution');
+    expect(data.tasks[0]).toHaveProperty('isRunning');
+  });
+
+  it('converts interval minutes to hours', async () => {
+    mswServer.use(http.get(`${API}/system/task`, () => HttpResponse.json(systemTaskFixtures)));
+    const result = await sonarrModule.handlers['sonarr_get_system_tasks']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.tasks[0].intervalHours).toBe(systemTaskFixtures[0].interval / 60);
+  });
+
+  it('throws when sonarr is not configured', async () => {
+    await expect(sonarrModule.handlers['sonarr_get_system_tasks']({}, {})).rejects.toThrow('Sonarr is not configured');
+  });
+});
+
+// ─── sonarr_get_logs ──────────────────────────────────────────────────────────
+
+describe('sonarr_get_logs', () => {
+  it('returns paged log records', async () => {
+    mswServer.use(http.get(`${API}/log`, () => HttpResponse.json(logPageFixture)));
+    const result = await sonarrModule.handlers['sonarr_get_logs']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.totalRecords).toBe(logPageFixture.totalRecords);
+    expect(Array.isArray(data.records)).toBe(true);
+    expect(data.records[0]).toHaveProperty('time');
+    expect(data.records[0]).toHaveProperty('level');
+    expect(data.records[0]).toHaveProperty('message');
+  });
+
+  it('includes exception fields when present', async () => {
+    mswServer.use(http.get(`${API}/log`, () => HttpResponse.json(logPageFixture)));
+    const result = await sonarrModule.handlers['sonarr_get_logs']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    const warnEntry = data.records.find((r: { level: string }) => r.level === 'warn');
+    expect(warnEntry).toHaveProperty('exception');
+    expect(warnEntry).toHaveProperty('exceptionType');
+  });
+
+  it('defaults to page 1 and pageSize 20', async () => {
+    let capturedUrl: string | undefined;
+    mswServer.use(http.get(`${API}/log`, ({ request }) => {
+      capturedUrl = request.url;
+      return HttpResponse.json(logPageFixture);
+    }));
+    await sonarrModule.handlers['sonarr_get_logs']({}, clients);
+    expect(capturedUrl).toContain('page=1');
+    expect(capturedUrl).toContain('pageSize=20');
+  });
+
+  it('passes level filter when provided', async () => {
+    let capturedUrl: string | undefined;
+    mswServer.use(http.get(`${API}/log`, ({ request }) => {
+      capturedUrl = request.url;
+      return HttpResponse.json(logPageFixture);
+    }));
+    await sonarrModule.handlers['sonarr_get_logs']({ level: 'error' }, clients);
+    expect(capturedUrl).toContain('level=error');
+  });
+
+  it('throws when sonarr is not configured', async () => {
+    await expect(sonarrModule.handlers['sonarr_get_logs']({}, {})).rejects.toThrow('Sonarr is not configured');
+  });
+});
+
+// ─── sonarr_trigger_backup ────────────────────────────────────────────────────
+
+describe('sonarr_trigger_backup', () => {
+  it('posts Backup command and returns commandId', async () => {
+    mswServer.use(http.post(`${API}/command`, () => HttpResponse.json({ id: 42 }, { status: 201 })));
+    const result = await sonarrModule.handlers['sonarr_trigger_backup']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.commandId).toBe(42);
+  });
+
+  it('throws when sonarr is not configured', async () => {
+    await expect(sonarrModule.handlers['sonarr_trigger_backup']({}, {})).rejects.toThrow('Sonarr is not configured');
+  });
+});
+
+// ─── sonarr_get_notifications ─────────────────────────────────────────────────
+
+describe('sonarr_get_notifications', () => {
+  it('returns count and notification list', async () => {
+    mswServer.use(http.get(`${API}/notification`, () => HttpResponse.json(notificationFixtures)));
+    const result = await sonarrModule.handlers['sonarr_get_notifications']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.count).toBe(notificationFixtures.length);
+    expect(data.notifications[0]).toHaveProperty('id');
+    expect(data.notifications[0]).toHaveProperty('name');
+    expect(data.notifications[0]).toHaveProperty('implementation');
+    expect(data.notifications[0]).toHaveProperty('triggers');
+  });
+
+  it('returns implementationName as implementation', async () => {
+    mswServer.use(http.get(`${API}/notification`, () => HttpResponse.json(notificationFixtures)));
+    const result = await sonarrModule.handlers['sonarr_get_notifications']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.notifications[0].implementation).toBe('Slack');
+  });
+
+  it('includes trigger flags', async () => {
+    mswServer.use(http.get(`${API}/notification`, () => HttpResponse.json(notificationFixtures)));
+    const result = await sonarrModule.handlers['sonarr_get_notifications']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    const triggers = data.notifications[0].triggers;
+    expect(triggers).toHaveProperty('onGrab');
+    expect(triggers).toHaveProperty('onDownload');
+    expect(triggers).toHaveProperty('onHealthIssue');
+  });
+
+  it('throws when sonarr is not configured', async () => {
+    await expect(sonarrModule.handlers['sonarr_get_notifications']({}, {})).rejects.toThrow('Sonarr is not configured');
+  });
+});
+
+// ─── sonarr_update_quality_definition ────────────────────────────────────────
+
+describe('sonarr_update_quality_definition', () => {
+  it('fetches definitions then PUTs updated sizes', async () => {
+    const def = qualityDefinitionFixtures[0];
+    const updated = { ...def, minSize: 10, maxSize: 300 };
+    mswServer.use(
+      http.get(`${API}/qualitydefinition`, () => HttpResponse.json(qualityDefinitionFixtures)),
+      http.put(`${API}/qualitydefinition/${def.id}`, () => HttpResponse.json(updated)),
+    );
+    const result = await sonarrModule.handlers['sonarr_update_quality_definition']({ definitionId: def.id, minSize: 10, maxSize: 300 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.minSize).toBe(10);
+    expect(data.maxSize).toBe(300);
+  });
+
+  it('returns isError when definition id not found', async () => {
+    mswServer.use(http.get(`${API}/qualitydefinition`, () => HttpResponse.json(qualityDefinitionFixtures)));
+    const result = await sonarrModule.handlers['sonarr_update_quality_definition']({ definitionId: 999 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.isError).toBe(true);
+  });
+
+  it('only updates provided fields', async () => {
+    const def = qualityDefinitionFixtures[0];
+    let capturedBody: unknown;
+    mswServer.use(
+      http.get(`${API}/qualitydefinition`, () => HttpResponse.json(qualityDefinitionFixtures)),
+      http.put(`${API}/qualitydefinition/${def.id}`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json(def);
+      }),
+    );
+    await sonarrModule.handlers['sonarr_update_quality_definition']({ definitionId: def.id, preferredSize: 200 }, clients);
+    const body = capturedBody as typeof def;
+    expect(body.preferredSize).toBe(200);
+    expect(body.minSize).toBe(def.minSize);
+    expect(body.maxSize).toBe(def.maxSize);
+  });
+
+  it('throws when sonarr is not configured', async () => {
+    await expect(sonarrModule.handlers['sonarr_update_quality_definition']({ definitionId: 1 }, {})).rejects.toThrow('Sonarr is not configured');
+  });
+});
+
+// ─── sonarr_get_import_lists ──────────────────────────────────────────────────
+
+describe('sonarr_get_import_lists', () => {
+  it('returns count and import list details', async () => {
+    mswServer.use(http.get(`${API}/importlist`, () => HttpResponse.json(importListFixtures)));
+    const result = await sonarrModule.handlers['sonarr_get_import_lists']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.count).toBe(importListFixtures.length);
+    expect(data.importLists[0]).toHaveProperty('id');
+    expect(data.importLists[0]).toHaveProperty('name');
+    expect(data.importLists[0]).toHaveProperty('enabled');
+    expect(data.importLists[0]).toHaveProperty('enableAuto');
+  });
+
+  it('returns implementationName as implementation', async () => {
+    mswServer.use(http.get(`${API}/importlist`, () => HttpResponse.json(importListFixtures)));
+    const result = await sonarrModule.handlers['sonarr_get_import_lists']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.importLists[0].implementation).toBe('Trakt Popular');
+  });
+
+  it('throws when sonarr is not configured', async () => {
+    await expect(sonarrModule.handlers['sonarr_get_import_lists']({}, {})).rejects.toThrow('Sonarr is not configured');
+  });
+});
+
+// ─── sonarr_update_import_list ────────────────────────────────────────────────
+
+describe('sonarr_update_import_list', () => {
+  it('fetches lists then PUTs with updated enabled flag', async () => {
+    const list = importListFixtures[0];
+    const updated = { ...list, enabled: false };
+    mswServer.use(
+      http.get(`${API}/importlist`, () => HttpResponse.json(importListFixtures)),
+      http.put(`${API}/importlist/${list.id}`, () => HttpResponse.json(updated)),
+    );
+    const result = await sonarrModule.handlers['sonarr_update_import_list']({ listId: list.id, enabled: false }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.enabled).toBe(false);
+  });
+
+  it('returns isError when list id not found', async () => {
+    mswServer.use(http.get(`${API}/importlist`, () => HttpResponse.json(importListFixtures)));
+    const result = await sonarrModule.handlers['sonarr_update_import_list']({ listId: 999 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.isError).toBe(true);
+  });
+
+  it('only updates provided fields', async () => {
+    const list = importListFixtures[1];
+    let capturedBody: unknown;
+    mswServer.use(
+      http.get(`${API}/importlist`, () => HttpResponse.json(importListFixtures)),
+      http.put(`${API}/importlist/${list.id}`, async ({ request }) => {
+        capturedBody = await request.json();
+        return HttpResponse.json(list);
+      }),
+    );
+    await sonarrModule.handlers['sonarr_update_import_list']({ listId: list.id, enableAuto: false }, clients);
+    const body = capturedBody as typeof list;
+    expect(body.enableAuto).toBe(false);
+    expect(body.enabled).toBe(list.enabled);
+  });
+
+  it('throws when sonarr is not configured', async () => {
+    await expect(sonarrModule.handlers['sonarr_update_import_list']({ listId: 1 }, {})).rejects.toThrow('Sonarr is not configured');
   });
 });
 
