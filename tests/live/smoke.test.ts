@@ -97,12 +97,33 @@ liveDescribe('live smoke tests against configured Arr services', () => {
 
   if (mediaServices.length > 0) {
     it('arr_search_all returns a result envelope for media services', async () => {
-      const data = await callTool<{ term: string; results: Record<string, unknown> }>('arr_search_all', { term: searchTerm });
+      const data = await callTool<{ term: string; type: string; results: Record<string, unknown> }>('arr_search_all', { term: searchTerm });
       expect(data.term).toBe(searchTerm);
+      expect(data.type).toBe('all');
       for (const service of mediaServices) {
         expect(data.results[service]).toBeDefined();
       }
     });
+
+    if (clients.radarr) {
+      it('arr_search_all type: "movies" only returns radarr results', async () => {
+        const data = await callTool<{ type: string; results: Record<string, unknown> }>('arr_search_all', { term: searchTerm, type: 'movies' });
+        expect(data.type).toBe('movies');
+        expect(data.results).toHaveProperty('radarr');
+        expect(data.results).not.toHaveProperty('sonarr');
+        expect(data.results).not.toHaveProperty('lidarr');
+      });
+    }
+
+    if (clients.sonarr) {
+      it('arr_search_all type: "tv" only returns sonarr results', async () => {
+        const data = await callTool<{ type: string; results: Record<string, unknown> }>('arr_search_all', { term: searchTerm, type: 'tv' });
+        expect(data.type).toBe('tv');
+        expect(data.results).toHaveProperty('sonarr');
+        expect(data.results).not.toHaveProperty('radarr');
+        expect(data.results).not.toHaveProperty('lidarr');
+      });
+    }
   }
 });
 
@@ -234,9 +255,38 @@ if (clients.prowlarr) {
   describe('live Prowlarr smoke', () => {
     it('read-only tools respond', async () => {
       await callTool('prowlarr_get_indexers');
-      await callTool('prowlarr_search', { query: searchTerm });
-      await callTool('prowlarr_get_stats');
       await callTool('prowlarr_get_health');
+      await callTool('prowlarr_get_stats');
+      await callTool('prowlarr_get_tags');
+      await callTool('prowlarr_get_download_clients');
+      await callTool('prowlarr_get_apps');
+      await callTool('prowlarr_get_history');
+    });
+
+    it('search with default pagination responds', async () => {
+      const data = await callTool<{ totalResults: number; returned: number; offset: number; limit: number; hasMore: boolean; results: unknown[] }>('prowlarr_search', { term: searchTerm });
+      expect(data.offset).toBe(0);
+      expect(data.limit).toBe(25);
+      expect(typeof data.totalResults).toBe('number');
+      expect(typeof data.returned).toBe('number');
+      expect(typeof data.hasMore).toBe('boolean');
+      expect(data.returned).toBeLessThanOrEqual(data.limit);
+      expect(Array.isArray(data.results)).toBe(true);
+    });
+
+    it('search with category filter responds', async () => {
+      // 2000 = Movies category in Newznab
+      const data = await callTool<{ totalResults: number; returned: number; results: unknown[] }>('prowlarr_search', { term: searchTerm, categories: [2000] });
+      expect(Array.isArray(data.results)).toBe(true);
+      expect(data.returned).toBeLessThanOrEqual(25);
+    });
+
+    it('search with explicit pagination responds', async () => {
+      const data = await callTool<{ totalResults: number; returned: number; offset: number; limit: number; hasMore: boolean }>('prowlarr_search', { term: searchTerm, offset: 0, limit: 10 });
+      expect(data.offset).toBe(0);
+      expect(data.limit).toBe(10);
+      expect(data.returned).toBeLessThanOrEqual(10);
+      expect(typeof data.hasMore).toBe('boolean');
     });
 
     if (enableCommandSmoke) {

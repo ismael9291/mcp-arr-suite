@@ -464,6 +464,29 @@ export interface IndexerStats {
   numberOfFailedAuthQueries: number;
 }
 
+export interface ProwlarrHistoryRecord {
+  id: number;
+  indexerId: number;
+  indexer: string;
+  date: string;
+  successful: boolean;
+  eventType: string;
+  sourceTitle?: string;
+  downloadId?: string;
+  data: Record<string, unknown>;
+}
+
+export interface ProwlarrApplication {
+  id: number;
+  name: string;
+  implementation: string;
+  implementationName: string;
+  syncLevel: string;
+  enable: boolean;
+  tags: number[];
+  fields: Array<{ name: string; value: unknown }>;
+}
+
 // ─── Base client ──────────────────────────────────────────────────────────────
 
 export class ArrClient {
@@ -933,5 +956,23 @@ export class ProwlarrClient extends ArrClient {
     const params = new URLSearchParams({ query });
     if (categories) categories.forEach(c => params.append('categories', c.toString()));
     return this.request<unknown[]>(`/search?${params.toString()}`);
+  }
+
+  async getHistory(page = 1, pageSize = 20, indexerId?: number): Promise<{ records: ProwlarrHistoryRecord[]; totalRecords: number }> {
+    const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+    if (indexerId !== undefined) params.set('indexerId', String(indexerId));
+    return this.request<{ records: ProwlarrHistoryRecord[]; totalRecords: number }>(`/history?${params.toString()}`);
+  }
+
+  async getTags(): Promise<Tag[]> {
+    return this.request<Tag[]>('/tag');
+  }
+
+  async getDownloadClients(): Promise<DownloadClient[]> {
+    return this.request<DownloadClient[]>('/downloadclient');
+  }
+
+  async getApplications(): Promise<ProwlarrApplication[]> {
+    return this.request<ProwlarrApplication[]>('/applications');
   }
 }

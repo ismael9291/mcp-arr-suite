@@ -130,4 +130,40 @@ describe('arr_search_all', () => {
     expect(data.results).not.toHaveProperty('sonarr');
     expect(data.results).not.toHaveProperty('lidarr');
   });
+
+  it('type: "movies" only queries radarr', async () => {
+    const radarr = new RadarrClient({ url: RADARR, apiKey: 'k' });
+    const sonarr = new SonarrClient({ url: SONARR, apiKey: 'k' });
+
+    const result = await crossServiceModule.handlers['arr_search_all']({ term: 'dune', type: 'movies' }, { radarr, sonarr });
+    const data = JSON.parse(result.content[0].text);
+
+    expect(data.type).toBe('movies');
+    expect(data.results).toHaveProperty('radarr');
+    expect(data.results).not.toHaveProperty('sonarr');
+  });
+
+  it('type: "tv" only queries sonarr', async () => {
+    const radarr = new RadarrClient({ url: RADARR, apiKey: 'k' });
+    const sonarr = new SonarrClient({ url: SONARR, apiKey: 'k' });
+
+    const result = await crossServiceModule.handlers['arr_search_all']({ term: 'breaking bad', type: 'tv' }, { radarr, sonarr });
+    const data = JSON.parse(result.content[0].text);
+
+    expect(data.type).toBe('tv');
+    expect(data.results).toHaveProperty('sonarr');
+    expect(data.results).not.toHaveProperty('radarr');
+  });
+
+  it('no type filter queries all configured services', async () => {
+    const radarr = new RadarrClient({ url: RADARR, apiKey: 'k' });
+    const sonarr = new SonarrClient({ url: SONARR, apiKey: 'k' });
+
+    const result = await crossServiceModule.handlers['arr_search_all']({ term: 'dune' }, { radarr, sonarr });
+    const data = JSON.parse(result.content[0].text);
+
+    expect(data.type).toBe('all');
+    expect(data.results).toHaveProperty('radarr');
+    expect(data.results).toHaveProperty('sonarr');
+  });
 });

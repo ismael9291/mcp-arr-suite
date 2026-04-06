@@ -209,8 +209,8 @@ describe('expected tool counts', () => {
     const registry = buildFullRegistry();
     const total = registry.getTools().length;
     // cross-service: 2, trash: 7, sonarr config: 7, sonarr: 22,
-    // radarr config: 7, radarr: 18, lidarr config: 7, lidarr: 9, prowlarr: 5
-    // = 84 total
+    // radarr config: 7, radarr: 18, lidarr config: 7, lidarr: 9, prowlarr: 9
+    // = 88 total
     expect(total).toBeGreaterThan(60);
     expect(total).toBeLessThan(200);
   });

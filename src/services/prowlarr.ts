@@ -18,11 +18,18 @@ export const prowlarrModule: ToolModule = {
     },
     {
       name: 'prowlarr_search',
-      description: 'Search across all Prowlarr indexers.',
+      description: 'Search across all Prowlarr indexers. Supports category filtering and pagination.',
       inputSchema: {
         type: 'object' as const,
         properties: {
           term: { type: 'string', description: 'Search term' },
+          categories: {
+            type: 'array',
+            items: { type: 'number' },
+            description: 'Newznab category IDs to filter by (e.g. 2000=Movies, 5000=TV, 3000=Audio). Omit for all categories.',
+          },
+          offset: { type: 'number', description: 'Result offset for pagination (default: 0)' },
+          limit: { type: 'number', description: 'Max results to return (default: 25)' },
         },
         required: ['term'],
       },
@@ -40,6 +47,34 @@ export const prowlarrModule: ToolModule = {
     {
       name: 'prowlarr_get_health',
       description: 'Get health check warnings from Prowlarr.',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
+    {
+      name: 'prowlarr_get_history',
+      description: 'Get Prowlarr search/grab history, optionally filtered by indexer.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          page: { type: 'number', description: 'Page number (default: 1)' },
+          pageSize: { type: 'number', description: 'Results per page (default: 20)' },
+          indexerId: { type: 'number', description: 'Filter history to a specific indexer ID' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'prowlarr_get_tags',
+      description: 'Get all tags defined in Prowlarr.',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
+    {
+      name: 'prowlarr_get_download_clients',
+      description: 'Get all download clients configured in Prowlarr.',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
+    {
+      name: 'prowlarr_get_apps',
+      description: 'Get all applications connected to Prowlarr (e.g. Sonarr, Radarr) and their sync status.',
       inputSchema: { type: 'object' as const, properties: {}, required: [] },
     },
   ],
@@ -65,11 +100,19 @@ export const prowlarrModule: ToolModule = {
     prowlarr_search: async (args, clients) => {
       if (!clients.prowlarr) throw new Error('Prowlarr is not configured');
       const query = args.term as string;
-      const results = await clients.prowlarr.search(query);
+      const categories = args.categories as number[] | undefined;
+      const offset = (args.offset as number | undefined) ?? 0;
+      const limit = (args.limit as number | undefined) ?? 25;
+      const results = await clients.prowlarr.search(query, categories);
       const items = results as Array<Record<string, unknown>>;
+      const page = items.slice(offset, offset + limit);
       return ok({
-        count: items.length,
-        results: items.slice(0, 25).map(r => ({
+        totalResults: items.length,
+        returned: page.length,
+        offset,
+        limit,
+        hasMore: offset + page.length < items.length,
+        results: page.map(r => ({
           title: r['title'],
           indexer: r['indexer'],
           size: r['size'],
@@ -77,8 +120,8 @@ export const prowlarrModule: ToolModule = {
           leechers: r['leechers'],
           publishDate: r['publishDate'],
           downloadUrl: r['downloadUrl'],
+          categories: r['categories'],
         })),
-        note: items.length > 25 ? `Showing first 25 of ${items.length} results` : undefined,
       });
     },
 
@@ -135,6 +178,67 @@ export const prowlarrModule: ToolModule = {
           type: h.type,
           message: h.message,
           wikiUrl: h.wikiUrl,
+        })),
+      });
+    },
+
+    prowlarr_get_history: async (args, clients) => {
+      if (!clients.prowlarr) throw new Error('Prowlarr is not configured');
+      const page = (args.page as number | undefined) ?? 1;
+      const pageSize = (args.pageSize as number | undefined) ?? 20;
+      const indexerId = args.indexerId as number | undefined;
+      const result = await clients.prowlarr.getHistory(page, pageSize, indexerId);
+      return ok({
+        page,
+        pageSize,
+        totalRecords: result.totalRecords,
+        records: result.records.map(r => ({
+          id: r.id,
+          indexer: r.indexer,
+          date: r.date,
+          eventType: r.eventType,
+          successful: r.successful,
+          sourceTitle: r.sourceTitle,
+          downloadId: r.downloadId,
+        })),
+      });
+    },
+
+    prowlarr_get_tags: async (_args, clients) => {
+      if (!clients.prowlarr) throw new Error('Prowlarr is not configured');
+      const tags = await clients.prowlarr.getTags();
+      return ok({ count: tags.length, tags });
+    },
+
+    prowlarr_get_download_clients: async (_args, clients) => {
+      if (!clients.prowlarr) throw new Error('Prowlarr is not configured');
+      const clients_ = await clients.prowlarr.getDownloadClients();
+      return ok({
+        count: clients_.length,
+        downloadClients: clients_.map(c => ({
+          id: c.id,
+          name: c.name,
+          implementation: c.implementationName,
+          protocol: c.protocol,
+          enable: c.enable,
+          priority: c.priority,
+          tags: c.tags,
+        })),
+      });
+    },
+
+    prowlarr_get_apps: async (_args, clients) => {
+      if (!clients.prowlarr) throw new Error('Prowlarr is not configured');
+      const apps = await clients.prowlarr.getApplications();
+      return ok({
+        count: apps.length,
+        applications: apps.map(a => ({
+          id: a.id,
+          name: a.name,
+          implementation: a.implementationName,
+          syncLevel: a.syncLevel,
+          enable: a.enable,
+          tags: a.tags,
         })),
       });
     },

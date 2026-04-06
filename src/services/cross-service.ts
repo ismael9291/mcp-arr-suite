@@ -19,11 +19,16 @@ export const crossServiceModule: ToolModule = {
     {
       name: 'arr_search_all',
       description:
-        'Search across all configured *arr services simultaneously. Returns top 5 results per service. Useful for finding whether something is already tracked in any service.',
+        'Search across all configured *arr services simultaneously. Returns top 5 results per service. Useful for finding whether something is already tracked in any service. Use the "type" filter to narrow to a specific media type.',
       inputSchema: {
         type: 'object' as const,
         properties: {
           term: { type: 'string', description: 'Search term (title, artist name, etc.)' },
+          type: {
+            type: 'string',
+            enum: ['tv', 'movies', 'music'],
+            description: 'Limit search to a specific media type. Omit to search all configured services.',
+          },
         },
         required: ['term'],
       },
@@ -58,9 +63,10 @@ export const crossServiceModule: ToolModule = {
 
     arr_search_all: async (args, clients) => {
       const term = args.term as string;
+      const type = args.type as 'tv' | 'movies' | 'music' | undefined;
       const results: Record<string, unknown> = {};
 
-      if (clients.sonarr) {
+      if (clients.sonarr && (type === undefined || type === 'tv')) {
         try {
           const hits = await clients.sonarr.searchSeries(term);
           results['sonarr'] = {
@@ -78,7 +84,7 @@ export const crossServiceModule: ToolModule = {
         }
       }
 
-      if (clients.radarr) {
+      if (clients.radarr && (type === undefined || type === 'movies')) {
         try {
           const hits = await clients.radarr.searchMovies(term);
           results['radarr'] = {
@@ -97,7 +103,7 @@ export const crossServiceModule: ToolModule = {
         }
       }
 
-      if (clients.lidarr) {
+      if (clients.lidarr && (type === undefined || type === 'music')) {
         try {
           const hits = await clients.lidarr.searchArtists(term);
           results['lidarr'] = {
@@ -114,7 +120,7 @@ export const crossServiceModule: ToolModule = {
         }
       }
 
-      return ok({ term, results });
+      return ok({ term, type: type ?? 'all', results });
     },
   },
 };
