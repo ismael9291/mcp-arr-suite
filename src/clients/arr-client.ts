@@ -476,6 +476,29 @@ export interface ProwlarrHistoryRecord {
   data: Record<string, unknown>;
 }
 
+export interface ImportExclusion {
+  id: number;
+  title: string;
+  year?: number;
+  tvdbId?: number;
+  tmdbId?: number;
+}
+
+export interface CustomFormat {
+  id: number;
+  name: string;
+  includeCustomFormatWhenRenaming: boolean;
+  specifications: Array<{
+    id?: number;
+    name: string;
+    implementation: string;
+    implementationName?: string;
+    negate: boolean;
+    required: boolean;
+    fields: Array<{ name: string; value: unknown }>;
+  }>;
+}
+
 export interface ProwlarrApplication {
   id: number;
   name: string;
@@ -572,6 +595,39 @@ export class ArrClient {
 
   async getIndexers(): Promise<Indexer[]> {
     return this.request<Indexer[]>('/indexer');
+  }
+
+  async getQualityProfile(id: number): Promise<QualityProfile> {
+    return this.request<QualityProfile>(`/qualityprofile/${id}`);
+  }
+
+  async updateQualityProfile(id: number, profile: QualityProfile): Promise<QualityProfile> {
+    return this.request<QualityProfile>(`/qualityprofile/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(profile),
+    });
+  }
+
+  async getCustomFormats(): Promise<CustomFormat[]> {
+    return this.request<CustomFormat[]>('/customformat');
+  }
+
+  async createTag(label: string): Promise<Tag> {
+    return this.request<Tag>('/tag', {
+      method: 'POST',
+      body: JSON.stringify({ label }),
+    });
+  }
+
+  async deleteTag(id: number): Promise<void> {
+    await this.request<void>(`/tag/${id}`, { method: 'DELETE' });
+  }
+
+  async runCommand(name: string, extra?: Record<string, unknown>): Promise<{ id: number }> {
+    return this.request<{ id: number }>('/command', {
+      method: 'POST',
+      body: JSON.stringify({ name, ...extra }),
+    });
   }
 
   async testConnection(): Promise<boolean> {
@@ -735,6 +791,14 @@ export class SonarrClient extends ArrClient {
       body: JSON.stringify({ series, monitoringOptions: { monitor: 'all' } }),
     });
   }
+
+  async getImportExclusions(): Promise<ImportExclusion[]> {
+    return this.request<ImportExclusion[]>('/importlistexclusion');
+  }
+
+  async deleteImportExclusion(id: number): Promise<void> {
+    await this.request<void>(`/importlistexclusion/${id}`, { method: 'DELETE' });
+  }
 }
 
 export class RadarrClient extends ArrClient {
@@ -857,6 +921,14 @@ export class RadarrClient extends ArrClient {
 
   async deleteFromBlocklist(blocklistId: number): Promise<void> {
     await this.request<void>(`/blocklist/${blocklistId}`, { method: 'DELETE' });
+  }
+
+  async getImportExclusions(): Promise<ImportExclusion[]> {
+    return this.request<ImportExclusion[]>('/importexclusion');
+  }
+
+  async deleteImportExclusion(id: number): Promise<void> {
+    await this.request<void>(`/importexclusion/${id}`, { method: 'DELETE' });
   }
 }
 

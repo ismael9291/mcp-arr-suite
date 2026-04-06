@@ -7,7 +7,7 @@
 
 import type { ToolModule } from '../types.js';
 import { ok } from '../types.js';
-import type { BlocklistRecord } from '../clients/arr-client.js';
+import type { BlocklistRecord, QualityProfile } from '../clients/arr-client.js';
 import { formatBytes, truncate, paginate, clampLimit, clampOffset, today, daysFromNow } from '../shared/formatting.js';
 
 export const radarrModule: ToolModule = {
@@ -232,6 +232,102 @@ export const radarrModule: ToolModule = {
         },
         required: [],
       },
+    },
+    {
+      name: 'radarr_get_quality_profile',
+      description: 'Get a single Radarr quality profile by ID with full details including quality items and custom format scores. Required before calling radarr_update_quality_profile.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          profileId: { type: 'number', description: 'Quality profile ID (from radarr_get_quality_profiles)' },
+        },
+        required: ['profileId'],
+      },
+    },
+    {
+      name: 'radarr_update_quality_profile',
+      description: 'Update a Radarr quality profile — change upgradeAllowed, minFormatScore, cutoffFormatScore, cutoff quality, or individual custom format scores. Fetches the existing profile first to avoid overwriting unrelated fields.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          profileId: { type: 'number', description: 'Quality profile ID (from radarr_get_quality_profiles)' },
+          upgradeAllowed: { type: 'boolean', description: 'Allow quality upgrades' },
+          cutoff: { type: 'number', description: 'Cutoff quality ID' },
+          minFormatScore: { type: 'number', description: 'Minimum custom format score required to import' },
+          cutoffFormatScore: { type: 'number', description: 'Custom format score needed to stop upgrading' },
+          formatScores: {
+            type: 'array',
+            description: 'Update scores for specific custom formats',
+            items: {
+              type: 'object',
+              properties: {
+                formatId: { type: 'number', description: 'Custom format ID' },
+                score: { type: 'number', description: 'New score (negative to penalize, positive to prefer)' },
+              },
+              required: ['formatId', 'score'],
+            },
+          },
+        },
+        required: ['profileId'],
+      },
+    },
+    {
+      name: 'radarr_list_custom_formats',
+      description: 'List all custom formats defined in Radarr with their IDs and specifications.',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
+    {
+      name: 'radarr_create_tag',
+      description: 'Create a new tag in Radarr.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          label: { type: 'string', description: 'Tag label/name' },
+        },
+        required: ['label'],
+      },
+    },
+    {
+      name: 'radarr_delete_tag',
+      description: 'Delete a tag from Radarr by ID.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          tagId: { type: 'number', description: 'Tag ID (from radarr_get_tags)' },
+        },
+        required: ['tagId'],
+      },
+    },
+    {
+      name: 'radarr_get_import_exclusions',
+      description: 'List movies that are excluded from import (blocked from being re-added after deletion).',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
+    {
+      name: 'radarr_delete_import_exclusion',
+      description: 'Remove a movie from the Radarr import exclusion list, allowing it to be re-added.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          exclusionId: { type: 'number', description: 'Exclusion ID (from radarr_get_import_exclusions)' },
+        },
+        required: ['exclusionId'],
+      },
+    },
+    {
+      name: 'radarr_trigger_cutoff_unmet_search',
+      description: 'Trigger a search for all monitored movies that have a file but have not met the quality cutoff (upgrade candidates).',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
+    {
+      name: 'radarr_trigger_refresh_monitored_downloads',
+      description: 'Trigger Radarr to refresh its view of monitored downloads — useful for checking stalled or stuck downloads.',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
+    {
+      name: 'radarr_trigger_rss_sync',
+      description: 'Trigger an immediate RSS feed sync across all configured indexers in Radarr.',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
     },
     {
       name: 'radarr_delete_from_blocklist',
@@ -604,6 +700,120 @@ export const radarrModule: ToolModule = {
       const blocklistId = args.blocklistId as number;
       await clients.radarr.deleteFromBlocklist(blocklistId);
       return ok({ success: true, message: `Removed blocklist entry ${blocklistId}` });
+    },
+
+    radarr_get_quality_profile: async (args, clients) => {
+      if (!clients.radarr) throw new Error('Radarr is not configured');
+      const profileId = args.profileId as number;
+      const profile = await clients.radarr.getQualityProfile(profileId);
+      return ok({
+        id: profile.id,
+        name: profile.name,
+        upgradeAllowed: profile.upgradeAllowed,
+        cutoff: profile.cutoff,
+        minFormatScore: profile.minFormatScore,
+        cutoffFormatScore: profile.cutoffFormatScore,
+        qualities: profile.items
+          .filter(i => i.allowed)
+          .map(i => i.quality ? i.quality.name : i.name),
+        customFormats: profile.formatItems.map(f => ({ id: f.format, name: f.name, score: f.score })),
+      });
+    },
+
+    radarr_update_quality_profile: async (args, clients) => {
+      if (!clients.radarr) throw new Error('Radarr is not configured');
+      const { profileId, upgradeAllowed, cutoff, minFormatScore, cutoffFormatScore, formatScores } = args as {
+        profileId: number;
+        upgradeAllowed?: boolean;
+        cutoff?: number;
+        minFormatScore?: number;
+        cutoffFormatScore?: number;
+        formatScores?: Array<{ formatId: number; score: number }>;
+      };
+      const existing: QualityProfile = await clients.radarr.getQualityProfile(profileId);
+      if (upgradeAllowed !== undefined) existing.upgradeAllowed = upgradeAllowed;
+      if (cutoff !== undefined) existing.cutoff = cutoff;
+      if (minFormatScore !== undefined) existing.minFormatScore = minFormatScore;
+      if (cutoffFormatScore !== undefined) existing.cutoffFormatScore = cutoffFormatScore;
+      if (formatScores) {
+        const scoreMap = new Map(formatScores.map(f => [f.formatId, f.score]));
+        existing.formatItems = existing.formatItems.map(f =>
+          scoreMap.has(f.format) ? { ...f, score: scoreMap.get(f.format)! } : f
+        );
+      }
+      const updated = await clients.radarr.updateQualityProfile(profileId, existing);
+      return ok({
+        success: true,
+        message: `Updated quality profile "${updated.name}"`,
+        id: updated.id,
+        name: updated.name,
+        upgradeAllowed: updated.upgradeAllowed,
+        minFormatScore: updated.minFormatScore,
+        cutoffFormatScore: updated.cutoffFormatScore,
+        customFormats: updated.formatItems.map(f => ({ id: f.format, name: f.name, score: f.score })),
+      });
+    },
+
+    radarr_list_custom_formats: async (_args, clients) => {
+      if (!clients.radarr) throw new Error('Radarr is not configured');
+      const formats = await clients.radarr.getCustomFormats();
+      return ok({
+        count: formats.length,
+        customFormats: formats.map(f => ({
+          id: f.id,
+          name: f.name,
+          includeWhenRenaming: f.includeCustomFormatWhenRenaming,
+          specifications: f.specifications.map(s => ({ name: s.name, implementation: s.implementationName ?? s.implementation, negate: s.negate, required: s.required })),
+        })),
+      });
+    },
+
+    radarr_create_tag: async (args, clients) => {
+      if (!clients.radarr) throw new Error('Radarr is not configured');
+      const label = args.label as string;
+      const tag = await clients.radarr.createTag(label);
+      return ok({ success: true, message: `Created tag "${tag.label}"`, id: tag.id, label: tag.label });
+    },
+
+    radarr_delete_tag: async (args, clients) => {
+      if (!clients.radarr) throw new Error('Radarr is not configured');
+      const tagId = args.tagId as number;
+      await clients.radarr.deleteTag(tagId);
+      return ok({ success: true, message: `Deleted tag ${tagId}` });
+    },
+
+    radarr_get_import_exclusions: async (_args, clients) => {
+      if (!clients.radarr) throw new Error('Radarr is not configured');
+      const exclusions = await clients.radarr.getImportExclusions();
+      return ok({
+        count: exclusions.length,
+        exclusions: exclusions.map(e => ({ id: e.id, title: e.title, tmdbId: e.tmdbId, year: e.year })),
+      });
+    },
+
+    radarr_delete_import_exclusion: async (args, clients) => {
+      if (!clients.radarr) throw new Error('Radarr is not configured');
+      const exclusionId = args.exclusionId as number;
+      await clients.radarr.deleteImportExclusion(exclusionId);
+      return ok({ success: true, message: `Removed exclusion ${exclusionId} — movie can now be re-added` });
+    },
+
+    radarr_trigger_cutoff_unmet_search: async (_args, clients) => {
+      if (!clients.radarr) throw new Error('Radarr is not configured');
+      const result = await clients.radarr.runCommand('CutoffUnmetMovieSearch');
+      return ok({ success: true, message: 'Triggered cutoff-unmet movie search', commandId: result.id });
+    },
+
+    radarr_trigger_refresh_monitored_downloads: async (_args, clients) => {
+      if (!clients.radarr) throw new Error('Radarr is not configured');
+      const result = await clients.radarr.runCommand('RefreshMonitoredDownloads');
+      return ok({ success: true, message: 'Triggered refresh of monitored downloads', commandId: result.id });
+    },
+
+    radarr_trigger_rss_sync: async (_args, clients) => {
+      if (!clients.radarr) throw new Error('Radarr is not configured');
+      const result = await clients.radarr.runCommand('RssSync');
+      return ok({ success: true, message: 'Triggered RSS sync', commandId: result.id });
     },
   },
 };
