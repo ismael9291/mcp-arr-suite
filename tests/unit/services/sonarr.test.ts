@@ -11,7 +11,10 @@ import {
   seriesBlocklistFixture,
   seriesWantedMissingFixture,
   seriesSearchResultFixtures,
+  sonarrImportExclusionFixtures,
+  releaseFixtures,
 } from '../../fixtures/sonarr/series.js';
+import { qualityProfileFixtures, customFormatFixtures, tagFixtures } from '../../fixtures/shared/config.js';
 
 const BASE = 'http://sonarr.test';
 const KEY = 'test-key';
@@ -262,5 +265,259 @@ describe('sonarr_monitor_episodes', () => {
     }, clients);
     const data = JSON.parse(result.content[0].text);
     expect(data.success).toBe(true);
+  });
+});
+
+// ─── sonarr_get_quality_profile ───────────────────────────────────────────────
+
+describe('sonarr_get_quality_profile', () => {
+  it('returns trimmed profile details by ID', async () => {
+    mswServer.use(http.get(`${API}/qualityprofile/4`, () => HttpResponse.json(qualityProfileFixtures[0])));
+    const result = await sonarrModule.handlers['sonarr_get_quality_profile']({ profileId: 4 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.id).toBe(4);
+    expect(data.name).toBe('Ultra-HD');
+    expect(data.upgradeAllowed).toBe(true);
+    expect(data.minFormatScore).toBe(0);
+    expect(Array.isArray(data.customFormats)).toBe(true);
+    expect(data.customFormats[0]).toHaveProperty('id');
+    expect(data.customFormats[0]).toHaveProperty('score');
+  });
+
+  it('lists only allowed qualities', async () => {
+    mswServer.use(http.get(`${API}/qualityprofile/4`, () => HttpResponse.json(qualityProfileFixtures[0])));
+    const result = await sonarrModule.handlers['sonarr_get_quality_profile']({ profileId: 4 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.qualities).toContain('Remux-2160p');
+    expect(data.qualities).not.toContain('HDTV-720p');
+  });
+});
+
+// ─── sonarr_update_quality_profile ────────────────────────────────────────────
+
+describe('sonarr_update_quality_profile', () => {
+  it('updates upgradeAllowed and minFormatScore', async () => {
+    mswServer.use(
+      http.get(`${API}/qualityprofile/4`, () => HttpResponse.json(qualityProfileFixtures[0])),
+      http.put(`${API}/qualityprofile/4`, async ({ request }) => {
+        const body = await request.json() as Record<string, unknown>;
+        return HttpResponse.json({ ...qualityProfileFixtures[0], ...body });
+      }),
+    );
+    const result = await sonarrModule.handlers['sonarr_update_quality_profile']({
+      profileId: 4,
+      upgradeAllowed: false,
+      minFormatScore: -10001,
+    }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.upgradeAllowed).toBe(false);
+    expect(data.minFormatScore).toBe(-10001);
+  });
+
+  it('merges formatScores without overwriting unmodified formats', async () => {
+    let putBody: Record<string, unknown> = {};
+    mswServer.use(
+      http.get(`${API}/qualityprofile/4`, () => HttpResponse.json(qualityProfileFixtures[0])),
+      http.put(`${API}/qualityprofile/4`, async ({ request }) => {
+        putBody = await request.json() as Record<string, unknown>;
+        return HttpResponse.json(putBody);
+      }),
+    );
+    await sonarrModule.handlers['sonarr_update_quality_profile']({
+      profileId: 4,
+      formatScores: [{ formatId: 1, score: 2000 }],
+    }, clients);
+    const items = putBody['formatItems'] as Array<{ format: number; score: number }>;
+    expect(items.find(f => f.format === 1)?.score).toBe(2000);
+    expect(items.find(f => f.format === 2)?.score).toBe(20);
+  });
+});
+
+// ─── sonarr_list_custom_formats ───────────────────────────────────────────────
+
+describe('sonarr_list_custom_formats', () => {
+  it('returns count and format list with specs', async () => {
+    mswServer.use(http.get(`${API}/customformat`, () => HttpResponse.json(customFormatFixtures)));
+    const result = await sonarrModule.handlers['sonarr_list_custom_formats']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.count).toBe(customFormatFixtures.length);
+    expect(data.customFormats[0]).toHaveProperty('id');
+    expect(data.customFormats[0]).toHaveProperty('name');
+    expect(data.customFormats[0]).toHaveProperty('specifications');
+    expect(Array.isArray(data.customFormats[0].specifications)).toBe(true);
+  });
+
+  it('uses implementationName when available', async () => {
+    mswServer.use(http.get(`${API}/customformat`, () => HttpResponse.json(customFormatFixtures)));
+    const result = await sonarrModule.handlers['sonarr_list_custom_formats']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.customFormats[0].specifications[0].implementation).toBe('Release Title');
+  });
+});
+
+// ─── sonarr_create_tag ────────────────────────────────────────────────────────
+
+describe('sonarr_create_tag', () => {
+  it('posts tag and returns id and label', async () => {
+    const newTag = { id: 5, label: 'anime' };
+    mswServer.use(http.post(`${API}/tag`, () => HttpResponse.json(newTag, { status: 201 })));
+    const result = await sonarrModule.handlers['sonarr_create_tag']({ label: 'anime' }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.id).toBe(5);
+    expect(data.label).toBe('anime');
+  });
+});
+
+// ─── sonarr_delete_tag ────────────────────────────────────────────────────────
+
+describe('sonarr_delete_tag', () => {
+  it('deletes tag and returns success', async () => {
+    mswServer.use(http.delete(`${API}/tag/${tagFixtures[0].id}`, () => HttpResponse.json({})));
+    const result = await sonarrModule.handlers['sonarr_delete_tag']({ tagId: tagFixtures[0].id }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+  });
+});
+
+// ─── sonarr_get_import_exclusions ─────────────────────────────────────────────
+
+describe('sonarr_get_import_exclusions', () => {
+  it('returns count and exclusion list', async () => {
+    mswServer.use(http.get(`${API}/importlistexclusion`, () => HttpResponse.json(sonarrImportExclusionFixtures)));
+    const result = await sonarrModule.handlers['sonarr_get_import_exclusions']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.count).toBe(sonarrImportExclusionFixtures.length);
+    expect(data.exclusions[0]).toHaveProperty('id');
+    expect(data.exclusions[0]).toHaveProperty('title');
+    expect(data.exclusions[0]).toHaveProperty('tvdbId');
+  });
+});
+
+// ─── sonarr_delete_import_exclusion ───────────────────────────────────────────
+
+describe('sonarr_delete_import_exclusion', () => {
+  it('deletes exclusion and returns success', async () => {
+    mswServer.use(http.delete(`${API}/importlistexclusion/1`, () => HttpResponse.json({})));
+    const result = await sonarrModule.handlers['sonarr_delete_import_exclusion']({ exclusionId: 1 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+  });
+});
+
+// ─── sonarr_trigger_cutoff_unmet_search ───────────────────────────────────────
+
+describe('sonarr_trigger_cutoff_unmet_search', () => {
+  it('posts CutoffUnmetEpisodeSearch command and returns commandId', async () => {
+    let commandName = '';
+    mswServer.use(http.post(`${API}/command`, async ({ request }) => {
+      const body = await request.json() as { name: string };
+      commandName = body.name;
+      return HttpResponse.json({ id: 888 });
+    }));
+    const result = await sonarrModule.handlers['sonarr_trigger_cutoff_unmet_search']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.commandId).toBe(888);
+    expect(commandName).toBe('CutoffUnmetEpisodeSearch');
+  });
+});
+
+// ─── sonarr_trigger_refresh_monitored_downloads ───────────────────────────────
+
+describe('sonarr_trigger_refresh_monitored_downloads', () => {
+  it('posts RefreshMonitoredDownloads command and returns commandId', async () => {
+    let commandName = '';
+    mswServer.use(http.post(`${API}/command`, async ({ request }) => {
+      const body = await request.json() as { name: string };
+      commandName = body.name;
+      return HttpResponse.json({ id: 889 });
+    }));
+    const result = await sonarrModule.handlers['sonarr_trigger_refresh_monitored_downloads']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.commandId).toBe(889);
+    expect(commandName).toBe('RefreshMonitoredDownloads');
+  });
+});
+
+// ─── sonarr_trigger_rss_sync ──────────────────────────────────────────────────
+
+describe('sonarr_trigger_rss_sync', () => {
+  it('posts RssSync command and returns commandId', async () => {
+    let commandName = '';
+    mswServer.use(http.post(`${API}/command`, async ({ request }) => {
+      const body = await request.json() as { name: string };
+      commandName = body.name;
+      return HttpResponse.json({ id: 890 });
+    }));
+    const result = await sonarrModule.handlers['sonarr_trigger_rss_sync']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.commandId).toBe(890);
+    expect(commandName).toBe('RssSync');
+  });
+});
+
+// ─── sonarr_search_releases ───────────────────────────────────────────────────
+
+describe('sonarr_search_releases', () => {
+  beforeEach(() => {
+    mswServer.use(http.get(`${API}/release`, () => HttpResponse.json(releaseFixtures)));
+  });
+
+  it('returns trimmed release list with count', async () => {
+    const result = await sonarrModule.handlers['sonarr_search_releases']({ episodeId: 1001 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.count).toBe(releaseFixtures.length);
+    expect(data.releases).toHaveLength(releaseFixtures.length);
+  });
+
+  it('includes guid and indexerId needed for grab', async () => {
+    const result = await sonarrModule.handlers['sonarr_search_releases']({ episodeId: 1001 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    const first = data.releases[0];
+    expect(first.guid).toBe(releaseFixtures[0].guid);
+    expect(first.indexerId).toBe(releaseFixtures[0].indexerId);
+  });
+
+  it('formats size as human-readable', async () => {
+    const result = await sonarrModule.handlers['sonarr_search_releases']({ episodeId: 1001 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.releases[0].size).toMatch(/\d+(\.\d+)? (B|KB|MB|GB|TB)/);
+  });
+
+  it('includes rejection reasons', async () => {
+    const result = await sonarrModule.handlers['sonarr_search_releases']({ episodeId: 1001 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    const rejected = data.releases.find((r: { rejected: boolean }) => r.rejected);
+    expect(rejected.rejections).toContain('Quality cutoff not met');
+  });
+
+  it('throws when sonarr is not configured', async () => {
+    await expect(sonarrModule.handlers['sonarr_search_releases']({ episodeId: 1001 }, {})).rejects.toThrow('Sonarr is not configured');
+  });
+});
+
+// ─── sonarr_grab_release ──────────────────────────────────────────────────────
+
+describe('sonarr_grab_release', () => {
+  it('posts to /release with guid and indexerId and returns grabbed title', async () => {
+    let body: { guid?: string; indexerId?: number } = {};
+    mswServer.use(http.post(`${API}/release`, async ({ request }) => {
+      body = await request.json() as { guid: string; indexerId: number };
+      return HttpResponse.json(releaseFixtures[0]);
+    }));
+    const result = await sonarrModule.handlers['sonarr_grab_release']({ guid: 'nzb-guid-s01e01', indexerId: 1 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.title).toBe(releaseFixtures[0].title);
+    expect(body.guid).toBe('nzb-guid-s01e01');
+    expect(body.indexerId).toBe(1);
+  });
+
+  it('throws when sonarr is not configured', async () => {
+    await expect(sonarrModule.handlers['sonarr_grab_release']({ guid: 'x', indexerId: 1 }, {})).rejects.toThrow('Sonarr is not configured');
   });
 });

@@ -1,4 +1,4 @@
-import type { QualityProfile, HealthCheck, RootFolder, DownloadClient, NamingConfig, MediaManagementConfig, QualityDefinition, Tag, Indexer, SystemStatus } from '../../../src/clients/arr-client.js';
+import type { QualityProfile, HealthCheck, RootFolder, DownloadClient, NamingConfig, MediaManagementConfig, QualityDefinition, Tag, Indexer, SystemStatus, CustomFormat } from '../../../src/clients/arr-client.js';
 
 export const systemStatusFixture: SystemStatus = {
   appName: 'Radarr',
@@ -146,6 +146,41 @@ export const qualityDefinitionFixtures: QualityDefinition[] = [
 export const tagFixtures: Tag[] = [
   { id: 1, label: 'hdr' },
   { id: 2, label: '4k' },
+];
+
+export const customFormatFixtures: CustomFormat[] = [
+  {
+    id: 1,
+    name: 'HDR10',
+    includeCustomFormatWhenRenaming: false,
+    specifications: [
+      {
+        id: 10,
+        name: 'HDR10',
+        implementation: 'ReleaseTitleSpecification',
+        implementationName: 'Release Title',
+        negate: false,
+        required: false,
+        fields: [{ name: 'value', value: '\\bHDR10\\b' }],
+      },
+    ],
+  },
+  {
+    id: 2,
+    name: 'x265 (HD)',
+    includeCustomFormatWhenRenaming: false,
+    specifications: [
+      {
+        id: 11,
+        name: 'x265/HEVC',
+        implementation: 'ReleaseTitleSpecification',
+        implementationName: 'Release Title',
+        negate: false,
+        required: false,
+        fields: [{ name: 'value', value: '\\bx265\\b|\\bHEVC\\b' }],
+      },
+    ],
+  },
 ];
 
 export const indexerFixtures: Indexer[] = [

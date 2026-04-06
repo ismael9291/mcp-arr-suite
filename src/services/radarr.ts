@@ -7,7 +7,7 @@
 
 import type { ToolModule } from '../types.js';
 import { ok } from '../types.js';
-import type { BlocklistRecord, QualityProfile } from '../clients/arr-client.js';
+import type { BlocklistRecord, QualityProfile, Release } from '../clients/arr-client.js';
 import { formatBytes, truncate, paginate, clampLimit, clampOffset, today, daysFromNow } from '../shared/formatting.js';
 
 export const radarrModule: ToolModule = {
@@ -338,6 +338,29 @@ export const radarrModule: ToolModule = {
           blocklistId: { type: 'number', description: 'Blocklist entry ID (from radarr_get_blocklist)' },
         },
         required: ['blocklistId'],
+      },
+    },
+    {
+      name: 'radarr_search_releases',
+      description: 'Search indexers for available releases for a specific movie. Returns release candidates with quality, size, seeders, and rejection reasons. Use the guid and indexerId from results to grab a release with radarr_grab_release.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          movieId: { type: 'number', description: 'Movie ID (from radarr_get_movies)' },
+        },
+        required: ['movieId'],
+      },
+    },
+    {
+      name: 'radarr_grab_release',
+      description: 'Grab a specific release and send it to the download client. Use radarr_search_releases first to find the guid and indexerId.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          guid: { type: 'string', description: 'Release GUID (from radarr_search_releases)' },
+          indexerId: { type: 'number', description: 'Indexer ID (from radarr_search_releases)' },
+        },
+        required: ['guid', 'indexerId'],
       },
     },
   ],
@@ -800,7 +823,7 @@ export const radarrModule: ToolModule = {
 
     radarr_trigger_cutoff_unmet_search: async (_args, clients) => {
       if (!clients.radarr) throw new Error('Radarr is not configured');
-      const result = await clients.radarr.runCommand('CutoffUnmetMovieSearch');
+      const result = await clients.radarr.runCommand('CutoffUnmetSearch');
       return ok({ success: true, message: 'Triggered cutoff-unmet movie search', commandId: result.id });
     },
 
@@ -814,6 +837,49 @@ export const radarrModule: ToolModule = {
       if (!clients.radarr) throw new Error('Radarr is not configured');
       const result = await clients.radarr.runCommand('RssSync');
       return ok({ success: true, message: 'Triggered RSS sync', commandId: result.id });
+    },
+
+    radarr_search_releases: async (args, clients) => {
+      if (!clients.radarr) throw new Error('Radarr is not configured');
+      const movieId = args.movieId as number;
+      const releases = await clients.radarr.searchReleases(movieId);
+      return ok({
+        count: releases.length,
+        releases: releases.map((r: Release) => ({
+          guid: r.guid,
+          indexerId: r.indexerId,
+          indexer: r.indexer,
+          title: r.title,
+          size: formatBytes(r.size),
+          sizeBytes: r.size,
+          quality: r.quality?.quality?.name,
+          customFormatScore: r.customFormatScore,
+          seeders: r.seeders,
+          leechers: r.leechers,
+          protocol: r.protocol,
+          indexerFlags: r.indexerFlags,
+          age: r.age,
+          approved: r.approved,
+          rejected: r.rejected,
+          rejections: r.rejections,
+          publishDate: r.publishDate,
+        })),
+      });
+    },
+
+    radarr_grab_release: async (args, clients) => {
+      if (!clients.radarr) throw new Error('Radarr is not configured');
+      const guid = args.guid as string;
+      const indexerId = args.indexerId as number;
+      const result = await clients.radarr.grabRelease(guid, indexerId);
+      return ok({
+        success: true,
+        message: `Grabbed release "${result.title}"`,
+        title: result.title,
+        quality: result.quality?.quality?.name,
+        indexer: result.indexer,
+        size: formatBytes(result.size),
+      });
     },
   },
 };

@@ -7,7 +7,7 @@
 
 import type { ToolModule } from '../types.js';
 import { ok } from '../types.js';
-import type { SeriesBlocklistRecord, QualityProfile } from '../clients/arr-client.js';
+import type { SeriesBlocklistRecord, QualityProfile, Release } from '../clients/arr-client.js';
 import { formatBytes, truncate, paginate, clampLimit, clampOffset, today, daysFromNow } from '../shared/formatting.js';
 
 export const sonarrModule: ToolModule = {
@@ -397,6 +397,29 @@ export const sonarrModule: ToolModule = {
           },
         },
         required: ['seriesId', 'seasons'],
+      },
+    },
+    {
+      name: 'sonarr_search_releases',
+      description: 'Search indexers for available releases for a specific episode. Returns release candidates with quality, size, seeders, and rejection reasons. Use the guid and indexerId from results to grab a release with sonarr_grab_release.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          episodeId: { type: 'number', description: 'Episode ID (from sonarr_get_episodes)' },
+        },
+        required: ['episodeId'],
+      },
+    },
+    {
+      name: 'sonarr_grab_release',
+      description: 'Grab a specific release and send it to the download client. Use sonarr_search_releases first to find the guid and indexerId.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          guid: { type: 'string', description: 'Release GUID (from sonarr_search_releases)' },
+          indexerId: { type: 'number', description: 'Indexer ID (from sonarr_search_releases)' },
+        },
+        required: ['guid', 'indexerId'],
       },
     },
   ],
@@ -939,6 +962,49 @@ export const sonarrModule: ToolModule = {
         message: `Updated season monitoring for "${series.title}"`,
         seriesId,
         seasons,
+      });
+    },
+
+    sonarr_search_releases: async (args, clients) => {
+      if (!clients.sonarr) throw new Error('Sonarr is not configured');
+      const episodeId = args.episodeId as number;
+      const releases = await clients.sonarr.searchReleases(episodeId);
+      return ok({
+        count: releases.length,
+        releases: releases.map((r: Release) => ({
+          guid: r.guid,
+          indexerId: r.indexerId,
+          indexer: r.indexer,
+          title: r.title,
+          size: formatBytes(r.size),
+          sizeBytes: r.size,
+          quality: r.quality?.quality?.name,
+          customFormatScore: r.customFormatScore,
+          seeders: r.seeders,
+          leechers: r.leechers,
+          protocol: r.protocol,
+          indexerFlags: r.indexerFlags,
+          age: r.age,
+          approved: r.approved,
+          rejected: r.rejected,
+          rejections: r.rejections,
+          publishDate: r.publishDate,
+        })),
+      });
+    },
+
+    sonarr_grab_release: async (args, clients) => {
+      if (!clients.sonarr) throw new Error('Sonarr is not configured');
+      const guid = args.guid as string;
+      const indexerId = args.indexerId as number;
+      const result = await clients.sonarr.grabRelease(guid, indexerId);
+      return ok({
+        success: true,
+        message: `Grabbed release "${result.title}"`,
+        title: result.title,
+        quality: result.quality?.quality?.name,
+        indexer: result.indexer,
+        size: formatBytes(result.size),
       });
     },
   },

@@ -1,4 +1,4 @@
-import type { Series, Episode, EpisodeFile, SeriesHistoryRecord, SeriesBlocklistRecord, SeriesWantedRecord } from '../../../src/clients/arr-client.js';
+import type { Series, Episode, EpisodeFile, SeriesHistoryRecord, SeriesBlocklistRecord, SeriesWantedRecord, ImportExclusion, Release } from '../../../src/clients/arr-client.js';
 
 export const seriesFixtures: Series[] = [
   {
@@ -208,6 +208,11 @@ export const seriesWantedMissingFixture: SeriesWantedRecord = {
   records: [seriesFixtures[1], seriesFixtures[2]],
 };
 
+export const sonarrImportExclusionFixtures: ImportExclusion[] = [
+  { id: 1, title: 'Firefly', year: 2002, tvdbId: 78874 },
+  { id: 2, title: 'Dollhouse', year: 2009, tvdbId: 83237 },
+];
+
 export const seriesSearchResultFixtures = [
   {
     title: 'The Wire',
@@ -226,5 +231,72 @@ export const seriesSearchResultFixtures = [
     year: 2002,
     images: [],
     tvdbId: 79127,
+  },
+];
+
+export const releaseFixtures: Release[] = [
+  {
+    guid: 'nzb-guid-s01e01',
+    quality: { quality: { id: 7, name: 'Bluray-1080p' } },
+    qualityWeight: 1400,
+    age: 1,
+    ageHours: 24,
+    ageMinutes: 1440,
+    size: 2_147_483_648,
+    indexerId: 1,
+    indexer: 'NZBgeek',
+    releaseHash: 'aaa111',
+    title: 'Breaking.Bad.S01E01.Pilot.1080p.BluRay.x264-GROUP',
+    fullSeason: false,
+    sceneSource: true,
+    language: { id: 1, name: 'English' },
+    approved: true,
+    temporarilyRejected: false,
+    rejected: false,
+    rejections: [],
+    publishDate: '2023-01-10T12:00:00Z',
+    commentUrl: '',
+    downloadUrl: 'https://nzbgeek.info/dl/aaa111',
+    infoUrl: '',
+    downloadAllowed: true,
+    releaseType: 'singleEpisode',
+    seeders: undefined,
+    leechers: undefined,
+    protocol: 'usenet',
+    indexerFlags: 0,
+    customFormats: [{ id: 1, name: 'Remux' }],
+    customFormatScore: 25,
+  },
+  {
+    guid: 'torrent-guid-s01e01',
+    quality: { quality: { id: 4, name: 'HDTV-720p' } },
+    qualityWeight: 800,
+    age: 3,
+    ageHours: 72,
+    ageMinutes: 4320,
+    size: 786_432_000,
+    indexerId: 2,
+    indexer: 'HDB',
+    releaseHash: 'bbb222',
+    title: 'Breaking.Bad.S01E01.720p.HDTV.x264-GROUP',
+    fullSeason: false,
+    sceneSource: false,
+    language: { id: 1, name: 'English' },
+    approved: false,
+    temporarilyRejected: false,
+    rejected: true,
+    rejections: ['Quality cutoff not met'],
+    publishDate: '2023-01-08T08:00:00Z',
+    commentUrl: '',
+    downloadUrl: 'https://hdb.internal/dl/bbb222',
+    infoUrl: '',
+    downloadAllowed: false,
+    releaseType: 'singleEpisode',
+    seeders: 15,
+    leechers: 3,
+    protocol: 'torrent',
+    indexerFlags: 0,
+    customFormats: [],
+    customFormatScore: 0,
   },
 ];

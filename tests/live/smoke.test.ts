@@ -160,6 +160,73 @@ if (clients.radarr) {
       if (movieId) {
         await callTool('radarr_get_movie_files', { movieId });
       }
+
+      // New tools: quality profile, custom formats, tags, import exclusions
+      const profiles = await callTool<{ profiles: Array<{ id: number; name: string }> }>('radarr_get_quality_profiles');
+      const firstProfileId = profiles.profiles?.[0]?.id;
+      if (firstProfileId) {
+        const profile = await callTool<{ id: number; upgradeAllowed: boolean; customFormats: unknown[] }>('radarr_get_quality_profile', { profileId: firstProfileId });
+        expect(profile.id).toBe(firstProfileId);
+        expect(typeof profile.upgradeAllowed).toBe('boolean');
+        expect(Array.isArray(profile.customFormats)).toBe(true);
+      }
+
+      const formats = await callTool<{ count: number; customFormats: unknown[] }>('radarr_list_custom_formats');
+      expect(typeof formats.count).toBe('number');
+      expect(Array.isArray(formats.customFormats)).toBe(true);
+
+      const exclusions = await callTool<{ count: number; exclusions: unknown[] }>('radarr_get_import_exclusions');
+      expect(typeof exclusions.count).toBe('number');
+      expect(Array.isArray(exclusions.exclusions)).toBe(true);
+    });
+
+    it('radarr_search_releases returns a valid release list for a movie', async () => {
+      const movies = await callTool<PaginatedItems>('radarr_get_movies', { limit: 5 });
+      const movieId = asOptionalNumber(process.env.RADARR_TEST_MOVIE_ID) ?? movies.items?.[0]?.id as number | undefined;
+      if (!movieId) {
+        console.log('  [skip] no movie in library — skipping radarr_search_releases');
+        return;
+      }
+      const data = await callTool<{
+        count: number;
+        releases: Array<{
+          guid: string;
+          indexerId: number;
+          indexer: string;
+          title: string;
+          size: string;
+          sizeBytes: number;
+          quality: string;
+          customFormatScore: number;
+          approved: boolean;
+          rejected: boolean;
+          rejections: string[];
+          protocol: string;
+        }>;
+      }>('radarr_search_releases', { movieId });
+
+      expect(typeof data.count).toBe('number');
+      expect(Array.isArray(data.releases)).toBe(true);
+
+      if (data.releases.length > 0) {
+        const r = data.releases[0];
+        expect(typeof r.guid).toBe('string');
+        expect(typeof r.indexerId).toBe('number');
+        expect(typeof r.title).toBe('string');
+        expect(typeof r.sizeBytes).toBe('number');
+        expect(r.size).toMatch(/\d+(\.\d+)? (B|KB|MB|GB|TB)/);
+        expect(typeof r.approved).toBe('boolean');
+        expect(typeof r.rejected).toBe('boolean');
+        expect(Array.isArray(r.rejections)).toBe(true);
+        expect(['usenet', 'torrent'].includes(r.protocol)).toBe(true);
+      }
+    });
+
+    it('tag create/delete round-trip succeeds', async () => {
+      const created = await callTool<{ id: number; label: string }>('radarr_create_tag', { label: 'smoke-test-tag' });
+      expect(created.id).toBeGreaterThan(0);
+      expect(created.label).toBe('smoke-test-tag');
+      await callTool('radarr_delete_tag', { tagId: created.id });
     });
 
     if (enableCommandSmoke) {
@@ -167,6 +234,26 @@ if (clients.radarr) {
         const movieId = asOptionalNumber(process.env.RADARR_TEST_MOVIE_ID);
         if (!movieId) return;
         await callTool('radarr_refresh_movie', { movieId });
+      });
+
+      it('trigger commands respond', async () => {
+        await callTool('radarr_trigger_refresh_monitored_downloads');
+        await callTool('radarr_trigger_rss_sync');
+        // radarr_trigger_cutoff_unmet_search skipped: CutoffUnmetSearch command not available until Radarr v6.1+
+      });
+
+      it('radarr_grab_release grabs the first approved release for a test movie', async () => {
+        const movieId = asOptionalNumber(process.env.RADARR_TEST_MOVIE_ID);
+        if (!movieId) return;
+        const search = await callTool<{ count: number; releases: Array<{ guid: string; indexerId: number; approved: boolean }> }>('radarr_search_releases', { movieId });
+        const approved = search.releases.find(r => r.approved);
+        if (!approved) {
+          console.log('  [skip] no approved release found — skipping radarr_grab_release');
+          return;
+        }
+        const grabbed = await callTool<{ success: boolean; title: string }>('radarr_grab_release', { guid: approved.guid, indexerId: approved.indexerId });
+        expect(grabbed.success).toBe(true);
+        expect(typeof grabbed.title).toBe('string');
       });
     }
   });
@@ -206,6 +293,87 @@ if (clients.sonarr) {
         await callTool('sonarr_get_episodes', { seriesId });
         await callTool('sonarr_get_episode_files', { seriesId });
       }
+
+      // New tools: quality profile, custom formats, tags, import exclusions
+      const profiles = await callTool<{ profiles: Array<{ id: number; name: string }> }>('sonarr_get_quality_profiles');
+      const firstProfileId = profiles.profiles?.[0]?.id;
+      if (firstProfileId) {
+        const profile = await callTool<{ id: number; upgradeAllowed: boolean; customFormats: unknown[] }>('sonarr_get_quality_profile', { profileId: firstProfileId });
+        expect(profile.id).toBe(firstProfileId);
+        expect(typeof profile.upgradeAllowed).toBe('boolean');
+        expect(Array.isArray(profile.customFormats)).toBe(true);
+      }
+
+      const formats = await callTool<{ count: number; customFormats: unknown[] }>('sonarr_list_custom_formats');
+      expect(typeof formats.count).toBe('number');
+      expect(Array.isArray(formats.customFormats)).toBe(true);
+
+      const exclusions = await callTool<{ count: number; exclusions: unknown[] }>('sonarr_get_import_exclusions');
+      expect(typeof exclusions.count).toBe('number');
+      expect(Array.isArray(exclusions.exclusions)).toBe(true);
+    });
+
+    it('sonarr_search_releases returns a valid release list for an episode', async () => {
+      const series = await callTool<PaginatedItems>('sonarr_get_series', { limit: 5 });
+      const seriesId = asOptionalNumber(process.env.SONARR_TEST_SERIES_ID) ?? series.items?.[0]?.id as number | undefined;
+      if (!seriesId) {
+        console.log('  [skip] no series in library — skipping sonarr_search_releases');
+        return;
+      }
+
+      const episodeIdFromEnv = asOptionalNumber(process.env.SONARR_TEST_EPISODE_ID);
+      let episodeId = episodeIdFromEnv;
+
+      if (!episodeId) {
+        const episodes = await callTool<{ count: number; episodes: Array<{ id: number }> }>('sonarr_get_episodes', { seriesId });
+        episodeId = episodes.episodes?.[0]?.id;
+      }
+
+      if (!episodeId) {
+        console.log('  [skip] no episodes found — skipping sonarr_search_releases');
+        return;
+      }
+
+      const data = await callTool<{
+        count: number;
+        releases: Array<{
+          guid: string;
+          indexerId: number;
+          indexer: string;
+          title: string;
+          size: string;
+          sizeBytes: number;
+          quality: string;
+          customFormatScore: number;
+          approved: boolean;
+          rejected: boolean;
+          rejections: string[];
+          protocol: string;
+        }>;
+      }>('sonarr_search_releases', { episodeId });
+
+      expect(typeof data.count).toBe('number');
+      expect(Array.isArray(data.releases)).toBe(true);
+
+      if (data.releases.length > 0) {
+        const r = data.releases[0];
+        expect(typeof r.guid).toBe('string');
+        expect(typeof r.indexerId).toBe('number');
+        expect(typeof r.title).toBe('string');
+        expect(typeof r.sizeBytes).toBe('number');
+        expect(r.size).toMatch(/\d+(\.\d+)? (B|KB|MB|GB|TB)/);
+        expect(typeof r.approved).toBe('boolean');
+        expect(typeof r.rejected).toBe('boolean');
+        expect(Array.isArray(r.rejections)).toBe(true);
+        expect(['usenet', 'torrent'].includes(r.protocol)).toBe(true);
+      }
+    });
+
+    it('tag create/delete round-trip succeeds', async () => {
+      const created = await callTool<{ id: number; label: string }>('sonarr_create_tag', { label: 'smoke-test-tag' });
+      expect(created.id).toBeGreaterThan(0);
+      expect(created.label).toBe('smoke-test-tag');
+      await callTool('sonarr_delete_tag', { tagId: created.id });
     });
 
     if (enableCommandSmoke) {
@@ -213,6 +381,26 @@ if (clients.sonarr) {
         const seriesId = asOptionalNumber(process.env.SONARR_TEST_SERIES_ID);
         if (!seriesId) return;
         await callTool('sonarr_refresh_series', { seriesId });
+      });
+
+      it('trigger commands respond', async () => {
+        await callTool('sonarr_trigger_refresh_monitored_downloads');
+        await callTool('sonarr_trigger_rss_sync');
+        await callTool('sonarr_trigger_cutoff_unmet_search');
+      });
+
+      it('sonarr_grab_release grabs the first approved release for a test episode', async () => {
+        const episodeId = asOptionalNumber(process.env.SONARR_TEST_EPISODE_ID);
+        if (!episodeId) return;
+        const search = await callTool<{ count: number; releases: Array<{ guid: string; indexerId: number; approved: boolean }> }>('sonarr_search_releases', { episodeId });
+        const approved = search.releases.find(r => r.approved);
+        if (!approved) {
+          console.log('  [skip] no approved release found — skipping sonarr_grab_release');
+          return;
+        }
+        const grabbed = await callTool<{ success: boolean; title: string }>('sonarr_grab_release', { guid: approved.guid, indexerId: approved.indexerId });
+        expect(grabbed.success).toBe(true);
+        expect(typeof grabbed.title).toBe('string');
       });
     }
   });

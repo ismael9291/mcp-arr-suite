@@ -1,4 +1,4 @@
-import type { Movie, MovieFile, HistoryRecord, BlocklistRecord, WantedRecord } from '../../../src/clients/arr-client.js';
+import type { Movie, MovieFile, HistoryRecord, BlocklistRecord, WantedRecord, ImportExclusion, Release } from '../../../src/clients/arr-client.js';
 
 /** Verbose source objects — include all raw API fields to prove handlers trim correctly */
 export const movieFixtures: Movie[] = [
@@ -155,6 +155,11 @@ export const wantedMissingFixture: WantedRecord = {
   records: [movieFixtures[1], movieFixtures[2]],
 };
 
+export const radarrImportExclusionFixtures: ImportExclusion[] = [
+  { id: 1, title: 'The Room', year: 2003, tmdbId: 9799 },
+  { id: 2, title: 'Birdemic', year: 2010, tmdbId: 50399 },
+];
+
 export const searchResultFixtures = [
   {
     title: 'Dune: Part Two',
@@ -175,5 +180,72 @@ export const searchResultFixtures = [
     images: [],
     tmdbId: 438631,
     imdbId: 'tt1160419',
+  },
+];
+
+export const releaseFixtures: Release[] = [
+  {
+    guid: 'nzb-guid-001',
+    quality: { quality: { id: 7, name: 'Bluray-1080p' } },
+    qualityWeight: 1400,
+    age: 2,
+    ageHours: 48,
+    ageMinutes: 2880,
+    size: 15_728_640_000,
+    indexerId: 1,
+    indexer: 'NZBgeek',
+    releaseHash: 'abc123',
+    title: 'Inception.2010.BluRay.1080p.x264-GROUP',
+    fullSeason: false,
+    sceneSource: true,
+    language: { id: 1, name: 'English' },
+    approved: true,
+    temporarilyRejected: false,
+    rejected: false,
+    rejections: [],
+    publishDate: '2023-01-10T12:00:00Z',
+    commentUrl: '',
+    downloadUrl: 'https://nzbgeek.info/dl/abc123',
+    infoUrl: '',
+    downloadAllowed: true,
+    releaseType: 'singleEpisode',
+    seeders: undefined,
+    leechers: undefined,
+    protocol: 'usenet',
+    indexerFlags: 0,
+    customFormats: [{ id: 1, name: 'Remux' }],
+    customFormatScore: 25,
+  },
+  {
+    guid: 'torrent-guid-002',
+    quality: { quality: { id: 4, name: 'HDTV-720p' } },
+    qualityWeight: 800,
+    age: 5,
+    ageHours: 120,
+    ageMinutes: 7200,
+    size: 4_294_967_296,
+    indexerId: 2,
+    indexer: 'HDB',
+    releaseHash: 'def456',
+    title: 'Inception.2010.720p.HDTV.x264-GROUP',
+    fullSeason: false,
+    sceneSource: false,
+    language: { id: 1, name: 'English' },
+    approved: false,
+    temporarilyRejected: false,
+    rejected: true,
+    rejections: ['Quality cutoff not met'],
+    publishDate: '2023-01-07T08:00:00Z',
+    commentUrl: '',
+    downloadUrl: 'https://hdb.internal/dl/def456',
+    infoUrl: '',
+    downloadAllowed: false,
+    releaseType: 'singleEpisode',
+    seeders: 42,
+    leechers: 10,
+    protocol: 'torrent',
+    indexerFlags: 0,
+    customFormats: [],
+    customFormatScore: 0,
   },
 ];

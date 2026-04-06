@@ -510,6 +510,45 @@ export interface ProwlarrApplication {
   fields: Array<{ name: string; value: unknown }>;
 }
 
+export interface Release {
+  guid: string;
+  quality: { quality: { id: number; name: string } };
+  qualityWeight: number;
+  age: number;
+  ageHours: number;
+  ageMinutes: number;
+  size: number;
+  indexerId: number;
+  indexer: string;
+  releaseHash: string;
+  title: string;
+  fullSeason: boolean;
+  sceneSource: boolean;
+  seasonNumber?: number;
+  episodeNumbers?: number[];
+  language: { id: number; name: string };
+  languages?: Array<{ id: number; name: string }>;
+  approved: boolean;
+  temporarilyRejected: boolean;
+  rejected: boolean;
+  rejections: string[];
+  publishDate: string;
+  commentUrl: string;
+  downloadUrl: string;
+  infoUrl: string;
+  episodeRequested?: boolean;
+  downloadAllowed: boolean;
+  releaseType: string;
+  seeders?: number;
+  leechers?: number;
+  protocol: string;
+  indexerFlags: number;
+  customFormats?: Array<{ id: number; name: string }>;
+  customFormatScore: number;
+  mappedSeriesId?: number;
+  mappedEpisodeInfo?: unknown;
+}
+
 // ─── Base client ──────────────────────────────────────────────────────────────
 
 export class ArrClient {
@@ -799,6 +838,17 @@ export class SonarrClient extends ArrClient {
   async deleteImportExclusion(id: number): Promise<void> {
     await this.request<void>(`/importlistexclusion/${id}`, { method: 'DELETE' });
   }
+
+  async searchReleases(episodeId: number): Promise<Release[]> {
+    return this.request<Release[]>(`/release?episodeId=${episodeId}`);
+  }
+
+  async grabRelease(guid: string, indexerId: number): Promise<Release> {
+    return this.request<Release>('/release', {
+      method: 'POST',
+      body: JSON.stringify({ guid, indexerId }),
+    });
+  }
 }
 
 export class RadarrClient extends ArrClient {
@@ -924,11 +974,22 @@ export class RadarrClient extends ArrClient {
   }
 
   async getImportExclusions(): Promise<ImportExclusion[]> {
-    return this.request<ImportExclusion[]>('/importexclusion');
+    return this.request<ImportExclusion[]>('/exclusions');
   }
 
   async deleteImportExclusion(id: number): Promise<void> {
-    await this.request<void>(`/importexclusion/${id}`, { method: 'DELETE' });
+    await this.request<void>(`/exclusions/${id}`, { method: 'DELETE' });
+  }
+
+  async searchReleases(movieId: number): Promise<Release[]> {
+    return this.request<Release[]>(`/release?movieId=${movieId}`);
+  }
+
+  async grabRelease(guid: string, indexerId: number): Promise<Release> {
+    return this.request<Release>('/release', {
+      method: 'POST',
+      body: JSON.stringify({ guid, indexerId }),
+    });
   }
 }
 
