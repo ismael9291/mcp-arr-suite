@@ -229,6 +229,30 @@ if (clients.radarr) {
       await callTool('radarr_delete_tag', { tagId: created.id });
     });
 
+    it('radarr_get_queue includes diagnostic fields', async () => {
+      const data = await callTool<{ totalRecords: number; items: Array<Record<string, unknown>> }>('radarr_get_queue', { limit: 5 });
+      expect(typeof data.totalRecords).toBe('number');
+      if (data.items.length > 0) {
+        const item = data.items[0];
+        expect(item).toHaveProperty('trackedDownloadStatus');
+        expect(item).toHaveProperty('trackedDownloadState');
+        expect(item).toHaveProperty('statusMessages');
+      }
+    });
+
+    it('radarr_get_manual_import responds for a folder', async () => {
+      const folder = process.env.RADARR_TEST_IMPORT_FOLDER ?? '/tmp';
+      const data = await callTool<{ count: number; items: unknown[] }>('radarr_get_manual_import', { folder, filterExistingFiles: true });
+      expect(typeof data.count).toBe('number');
+      expect(Array.isArray(data.items)).toBe(true);
+    });
+
+    it('radarr_bulk_update_movies with empty list succeeds gracefully', async () => {
+      // Using empty list to test the endpoint without touching real data
+      const data = await callTool<{ success: boolean; movieIds: number[] }>('radarr_bulk_update_movies', { movieIds: [] });
+      expect(data.success).toBe(true);
+    });
+
     if (enableCommandSmoke) {
       it('safe command tools respond when a test movie is available', async () => {
         const movieId = asOptionalNumber(process.env.RADARR_TEST_MOVIE_ID);
@@ -236,10 +260,50 @@ if (clients.radarr) {
         await callTool('radarr_refresh_movie', { movieId });
       });
 
+      it('radarr_refresh_movie with no ID triggers all-library refresh', async () => {
+        const data = await callTool<{ success: boolean; commandId: number }>('radarr_refresh_movie');
+        expect(data.success).toBe(true);
+        expect(typeof data.commandId).toBe('number');
+        const status = await callTool<{ id: number; status: string }>('radarr_get_command_status', { commandId: data.commandId });
+        expect(typeof status.status).toBe('string');
+      });
+
       it('trigger commands respond', async () => {
         await callTool('radarr_trigger_refresh_monitored_downloads');
         await callTool('radarr_trigger_rss_sync');
         // radarr_trigger_cutoff_unmet_search skipped: CutoffUnmetSearch command not available until Radarr v6.1+
+      });
+
+      it('radarr_trigger_rescan_movies responds with commandId', async () => {
+        const data = await callTool<{ success: boolean; commandId: number }>('radarr_trigger_rescan_movies');
+        expect(data.success).toBe(true);
+        expect(typeof data.commandId).toBe('number');
+      });
+
+      it('radarr_trigger_missing_search responds with commandId', async () => {
+        const data = await callTool<{ success: boolean; commandId: number }>('radarr_trigger_missing_search');
+        expect(data.success).toBe(true);
+        expect(typeof data.commandId).toBe('number');
+      });
+
+      it('radarr_trigger_rename_movies responds with commandId', async () => {
+        const data = await callTool<{ success: boolean; commandId: number }>('radarr_trigger_rename_movies');
+        expect(data.success).toBe(true);
+        expect(typeof data.commandId).toBe('number');
+      });
+
+      it('radarr_trigger_downloaded_scan responds with commandId', async () => {
+        const data = await callTool<{ success: boolean; commandId: number }>('radarr_trigger_downloaded_scan');
+        expect(data.success).toBe(true);
+        expect(typeof data.commandId).toBe('number');
+      });
+
+      it('radarr_get_command_status polls a triggered command', async () => {
+        const triggered = await callTool<{ commandId: number }>('radarr_trigger_rss_sync');
+        const status = await callTool<{ id: number; name: string; status: string }>('radarr_get_command_status', { commandId: triggered.commandId });
+        expect(status.id).toBe(triggered.commandId);
+        expect(typeof status.status).toBe('string');
+        expect(['queued', 'started', 'completed', 'failed', 'aborted'].includes(status.status)).toBe(true);
       });
 
       it('radarr_grab_release grabs the first approved release for a test movie', async () => {
@@ -376,6 +440,29 @@ if (clients.sonarr) {
       await callTool('sonarr_delete_tag', { tagId: created.id });
     });
 
+    it('sonarr_get_queue includes diagnostic fields', async () => {
+      const data = await callTool<{ totalRecords: number; items: Array<Record<string, unknown>> }>('sonarr_get_queue', { limit: 5 });
+      expect(typeof data.totalRecords).toBe('number');
+      if (data.items.length > 0) {
+        const item = data.items[0];
+        expect(item).toHaveProperty('trackedDownloadStatus');
+        expect(item).toHaveProperty('trackedDownloadState');
+        expect(item).toHaveProperty('statusMessages');
+      }
+    });
+
+    it('sonarr_get_manual_import responds for a folder', async () => {
+      const folder = process.env.SONARR_TEST_IMPORT_FOLDER ?? '/tmp';
+      const data = await callTool<{ count: number; items: unknown[] }>('sonarr_get_manual_import', { folder, filterExistingFiles: true });
+      expect(typeof data.count).toBe('number');
+      expect(Array.isArray(data.items)).toBe(true);
+    });
+
+    it('sonarr_bulk_update_series with empty list succeeds gracefully', async () => {
+      const data = await callTool<{ success: boolean; seriesIds: number[] }>('sonarr_bulk_update_series', { seriesIds: [] });
+      expect(data.success).toBe(true);
+    });
+
     if (enableCommandSmoke) {
       it('safe command tools respond when a test series is available', async () => {
         const seriesId = asOptionalNumber(process.env.SONARR_TEST_SERIES_ID);
@@ -383,10 +470,44 @@ if (clients.sonarr) {
         await callTool('sonarr_refresh_series', { seriesId });
       });
 
+      it('sonarr_refresh_series with no ID triggers all-library refresh', async () => {
+        const data = await callTool<{ success: boolean; commandId: number }>('sonarr_refresh_series');
+        expect(data.success).toBe(true);
+        expect(typeof data.commandId).toBe('number');
+        const status = await callTool<{ id: number; status: string }>('sonarr_get_command_status', { commandId: data.commandId });
+        expect(typeof status.status).toBe('string');
+      });
+
       it('trigger commands respond', async () => {
         await callTool('sonarr_trigger_refresh_monitored_downloads');
         await callTool('sonarr_trigger_rss_sync');
         await callTool('sonarr_trigger_cutoff_unmet_search');
+      });
+
+      it('sonarr_trigger_rescan_series responds with commandId', async () => {
+        const data = await callTool<{ success: boolean; commandId: number }>('sonarr_trigger_rescan_series');
+        expect(data.success).toBe(true);
+        expect(typeof data.commandId).toBe('number');
+      });
+
+      it('sonarr_trigger_rename_series responds with commandId', async () => {
+        const data = await callTool<{ success: boolean; commandId: number }>('sonarr_trigger_rename_series');
+        expect(data.success).toBe(true);
+        expect(typeof data.commandId).toBe('number');
+      });
+
+      it('sonarr_trigger_downloaded_scan responds with commandId', async () => {
+        const data = await callTool<{ success: boolean; commandId: number }>('sonarr_trigger_downloaded_scan');
+        expect(data.success).toBe(true);
+        expect(typeof data.commandId).toBe('number');
+      });
+
+      it('sonarr_get_command_status polls a triggered command', async () => {
+        const triggered = await callTool<{ commandId: number }>('sonarr_trigger_rss_sync');
+        const status = await callTool<{ id: number; name: string; status: string }>('sonarr_get_command_status', { commandId: triggered.commandId });
+        expect(status.id).toBe(triggered.commandId);
+        expect(typeof status.status).toBe('string');
+        expect(['queued', 'started', 'completed', 'failed', 'aborted'].includes(status.status)).toBe(true);
       });
 
       it('sonarr_grab_release grabs the first approved release for a test episode', async () => {
@@ -445,6 +566,33 @@ if (clients.lidarr) {
       await callTool('lidarr_get_blocklist', { pageSize: 5 });
     });
 
+    it('lidarr_get_queue includes diagnostic fields', async () => {
+      const data = await callTool<{ totalRecords: number; items: Array<Record<string, unknown>> }>('lidarr_get_queue', { limit: 5 });
+      expect(typeof data.totalRecords).toBe('number');
+      if (data.items.length > 0) {
+        const item = data.items[0];
+        expect(item).toHaveProperty('trackedDownloadStatus');
+        expect(item).toHaveProperty('trackedDownloadState');
+        expect(item).toHaveProperty('statusMessages');
+      }
+    });
+
+    it('gap #3-5 parity tools respond', async () => {
+      await callTool('lidarr_get_system_tasks');
+      await callTool('lidarr_get_logs', { pageSize: 5 });
+      await callTool('lidarr_get_notifications');
+      await callTool('lidarr_list_custom_formats');
+      await callTool('lidarr_get_import_lists');
+      await callTool('lidarr_get_import_exclusions');
+    });
+
+    it('lidarr tag create/delete round-trip succeeds', async () => {
+      const created = await callTool<{ success: boolean; id: number }>('lidarr_create_tag', { label: 'smoke-test-tag' });
+      expect(created.success).toBe(true);
+      expect(created.id).toBeGreaterThan(0);
+      await callTool('lidarr_delete_tag', { tagId: created.id });
+    });
+
     it('lidarr_get_disk_space returns formatted disk info', async () => {
       const data = await callTool<{ count: number; disks: Array<{ path: string; freeSpace: string; totalSpace: string; freePercent: string }> }>('lidarr_get_disk_space');
       expect(typeof data.count).toBe('number');
@@ -473,6 +621,35 @@ if (clients.lidarr) {
     });
 
     if (enableCommandSmoke) {
+      it('lidarr trigger commands respond with commandId', async () => {
+        const backup = await callTool<{ success: boolean; commandId: number }>('lidarr_trigger_backup');
+        expect(backup.success).toBe(true);
+        expect(typeof backup.commandId).toBe('number');
+
+        await callTool('lidarr_trigger_rss_sync');
+        await callTool('lidarr_trigger_refresh_monitored_downloads');
+
+        // RescanArtists / RenameArtist may not be supported on all Lidarr versions — skip gracefully
+        for (const tool of ['lidarr_trigger_rescan_artists', 'lidarr_trigger_rename_artists', 'lidarr_trigger_downloaded_scan'] as const) {
+          try {
+            const result = await callTool<{ success: boolean; commandId: number }>(tool);
+            expect(result.success).toBe(true);
+          } catch (e) {
+            console.log(`  [skip] ${tool} not supported on this Lidarr instance: ${(e as Error).message.slice(0, 80)}`);
+          }
+        }
+
+        const refresh = await callTool<{ success: boolean; commandId: number }>('lidarr_trigger_refresh_all_artists');
+        expect(refresh.success).toBe(true);
+      });
+
+      it('lidarr_get_command_status polls a triggered command', async () => {
+        const triggered = await callTool<{ commandId: number }>('lidarr_trigger_rss_sync');
+        const status = await callTool<{ id: number; name: string; status: string }>('lidarr_get_command_status', { commandId: triggered.commandId });
+        expect(typeof status.status).toBe('string');
+        expect(['queued', 'started', 'completed', 'failed', 'aborted'].includes(status.status)).toBe(true);
+      });
+
       it('lidarr_refresh_artist responds for a test artist', async () => {
         const artists = await callTool<PaginatedItems>('lidarr_get_artists', { limit: 5 });
         const artistId = asOptionalNumber(process.env.LIDARR_TEST_ARTIST_ID) ?? artists.items?.[0]?.id as number | undefined;
@@ -510,6 +687,13 @@ if (clients.prowlarr) {
       await callTool('prowlarr_get_download_clients');
       await callTool('prowlarr_get_apps');
       await callTool('prowlarr_get_history');
+    });
+
+    it('prowlarr tag create/delete round-trip succeeds', async () => {
+      const created = await callTool<{ success: boolean; id: number; message: string }>('prowlarr_create_tag', { label: 'smoke-test-prowlarr' });
+      expect(created.success).toBe(true);
+      expect(created.id).toBeGreaterThan(0);
+      await callTool('prowlarr_delete_tag', { tagId: created.id });
     });
 
     it('search with default pagination responds', async () => {

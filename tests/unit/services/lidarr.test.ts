@@ -15,7 +15,7 @@ import {
   lidarrWantedCutoffFixture,
   lidarrDiskSpaceFixtures,
 } from '../../fixtures/lidarr/artists.js';
-import { qualityProfileFixtures } from '../../fixtures/shared/config.js';
+import { qualityProfileFixtures, customFormatFixtures, tagFixtures, systemTaskFixtures, logPageFixture, notificationFixtures, importListFixtures, qualityDefinitionFixtures } from '../../fixtures/shared/config.js';
 
 const BASE = 'http://lidarr.test';
 const KEY = 'test-key';
@@ -503,5 +503,346 @@ describe('lidarr_get_quality_profiles', () => {
     // Confirm LidarrClient calls v1 path
     await lidarrClient.getQualityProfiles();
     expect(calledPath).toBe('/api/v1/qualityprofile');
+  });
+});
+
+// ─── lidarr_get_queue — diagnostic fields ────────────────────────────────────
+
+describe('lidarr_get_queue diagnostic fields', () => {
+  const queueWithDiagnostics = {
+    totalRecords: 1,
+    records: [
+      {
+        title: 'Artist - Album',
+        status: 'completed',
+        trackedDownloadStatus: 'warning',
+        trackedDownloadState: 'importBlocked',
+        statusMessages: [{ title: 'Already Imported', messages: ['Track already in library'] }],
+        size: 500,
+        sizeleft: 0,
+        timeleft: null,
+        downloadClient: 'SABnzbd',
+      },
+    ],
+  };
+
+  it('includes trackedDownloadStatus, State, and statusMessages', async () => {
+    mswServer.use(http.get(`${API}/queue`, () => HttpResponse.json(queueWithDiagnostics)));
+    const result = await lidarrModule.handlers['lidarr_get_queue']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.items[0].trackedDownloadStatus).toBe('warning');
+    expect(data.items[0].trackedDownloadState).toBe('importBlocked');
+    expect(data.items[0].statusMessages[0].title).toBe('Already Imported');
+  });
+});
+
+// ─── lidarr_get_command_status ───────────────────────────────────────────────
+
+describe('lidarr_get_command_status', () => {
+  const commandResponse = { id: 99, name: 'RescanArtists', status: 'completed', message: 'Completed', started: '2024-03-01T00:00:00Z', ended: '2024-03-01T00:01:00Z' };
+
+  it('returns command status fields', async () => {
+    mswServer.use(http.get(`${API}/command/99`, () => HttpResponse.json(commandResponse)));
+    const result = await lidarrModule.handlers['lidarr_get_command_status']({ commandId: 99 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.id).toBe(99);
+    expect(data.name).toBe('RescanArtists');
+    expect(data.status).toBe('completed');
+  });
+
+  it('throws when lidarr is not configured', async () => {
+    await expect(lidarrModule.handlers['lidarr_get_command_status']({ commandId: 1 }, {})).rejects.toThrow('Lidarr is not configured');
+  });
+});
+
+// ─── lidarr trigger commands ──────────────────────────────────────────────────
+
+describe('lidarr_trigger_backup', () => {
+  it('posts Backup command and returns commandId', async () => {
+    mswServer.use(http.post(`${API}/command`, () => HttpResponse.json({ id: 400 })));
+    const result = await lidarrModule.handlers['lidarr_trigger_backup']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.commandId).toBe(400);
+  });
+});
+
+describe('lidarr_trigger_rss_sync', () => {
+  it('posts RssSync command', async () => {
+    let commandName = '';
+    mswServer.use(http.post(`${API}/command`, async ({ request }) => {
+      const body = await request.json() as { name: string };
+      commandName = body.name;
+      return HttpResponse.json({ id: 401 });
+    }));
+    const result = await lidarrModule.handlers['lidarr_trigger_rss_sync']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.commandId).toBe(401);
+    expect(commandName).toBe('RssSync');
+  });
+});
+
+describe('lidarr_trigger_refresh_monitored_downloads', () => {
+  it('posts RefreshMonitoredDownloads command', async () => {
+    let commandName = '';
+    mswServer.use(http.post(`${API}/command`, async ({ request }) => {
+      const body = await request.json() as { name: string };
+      commandName = body.name;
+      return HttpResponse.json({ id: 402 });
+    }));
+    const result = await lidarrModule.handlers['lidarr_trigger_refresh_monitored_downloads']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.commandId).toBe(402);
+    expect(commandName).toBe('RefreshMonitoredDownloads');
+  });
+});
+
+describe('lidarr_trigger_cutoff_unmet_search', () => {
+  it('posts AlbumCutoffUnmetSearch command', async () => {
+    let commandName = '';
+    mswServer.use(http.post(`${API}/command`, async ({ request }) => {
+      const body = await request.json() as { name: string };
+      commandName = body.name;
+      return HttpResponse.json({ id: 403 });
+    }));
+    const result = await lidarrModule.handlers['lidarr_trigger_cutoff_unmet_search']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.commandId).toBe(403);
+    expect(commandName).toBe('AlbumCutoffUnmetSearch');
+  });
+});
+
+describe('lidarr_trigger_rescan_artists', () => {
+  it('posts RescanArtists command', async () => {
+    let commandName = '';
+    mswServer.use(http.post(`${API}/command`, async ({ request }) => {
+      const body = await request.json() as { name: string };
+      commandName = body.name;
+      return HttpResponse.json({ id: 404 });
+    }));
+    const result = await lidarrModule.handlers['lidarr_trigger_rescan_artists']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.commandId).toBe(404);
+    expect(commandName).toBe('RescanArtists');
+  });
+});
+
+describe('lidarr_trigger_refresh_all_artists', () => {
+  it('posts RefreshArtist command with no artistId', async () => {
+    let commandBody: Record<string, unknown> = {};
+    mswServer.use(http.post(`${API}/command`, async ({ request }) => {
+      commandBody = await request.json() as Record<string, unknown>;
+      return HttpResponse.json({ id: 405 });
+    }));
+    const result = await lidarrModule.handlers['lidarr_trigger_refresh_all_artists']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.commandId).toBe(405);
+    expect(commandBody['name']).toBe('RefreshArtist');
+    expect(commandBody).not.toHaveProperty('artistId');
+  });
+});
+
+describe('lidarr_trigger_rename_artists', () => {
+  it('posts RenameArtist command with empty artistIds', async () => {
+    let commandBody: Record<string, unknown> = {};
+    mswServer.use(http.post(`${API}/command`, async ({ request }) => {
+      commandBody = await request.json() as Record<string, unknown>;
+      return HttpResponse.json({ id: 406 });
+    }));
+    const result = await lidarrModule.handlers['lidarr_trigger_rename_artists']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.commandId).toBe(406);
+    expect(commandBody['name']).toBe('RenameArtist');
+    expect(commandBody['artistIds']).toEqual([]);
+  });
+});
+
+describe('lidarr_trigger_downloaded_scan', () => {
+  it('posts DownloadedAlbumsScan command', async () => {
+    let commandName = '';
+    mswServer.use(http.post(`${API}/command`, async ({ request }) => {
+      const body = await request.json() as { name: string };
+      commandName = body.name;
+      return HttpResponse.json({ id: 407 });
+    }));
+    const result = await lidarrModule.handlers['lidarr_trigger_downloaded_scan']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.commandId).toBe(407);
+    expect(commandName).toBe('DownloadedAlbumsScan');
+  });
+});
+
+// ─── lidarr_get_system_tasks ─────────────────────────────────────────────────
+
+describe('lidarr_get_system_tasks', () => {
+  it('returns system tasks with timing fields', async () => {
+    mswServer.use(http.get(`${API}/system/task`, () => HttpResponse.json(systemTaskFixtures)));
+    const result = await lidarrModule.handlers['lidarr_get_system_tasks']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.count).toBe(systemTaskFixtures.length);
+    expect(data.tasks[0].name).toBe('Housekeeping');
+    expect(data.tasks[0]).toHaveProperty('nextExecution');
+    expect(data.tasks[0]).toHaveProperty('isRunning');
+  });
+
+  it('throws when lidarr is not configured', async () => {
+    await expect(lidarrModule.handlers['lidarr_get_system_tasks']({}, {})).rejects.toThrow('Lidarr is not configured');
+  });
+});
+
+// ─── lidarr_get_logs ─────────────────────────────────────────────────────────
+
+describe('lidarr_get_logs', () => {
+  it('returns log entries with level and message', async () => {
+    mswServer.use(http.get(`${API}/log`, () => HttpResponse.json(logPageFixture)));
+    const result = await lidarrModule.handlers['lidarr_get_logs']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.totalRecords).toBe(logPageFixture.totalRecords);
+    expect(data.records[0].level).toBe('info');
+    expect(data.records[1].level).toBe('warn');
+  });
+});
+
+// ─── lidarr_get_notifications ─────────────────────────────────────────────────
+
+describe('lidarr_get_notifications', () => {
+  it('returns notification list with implementation names', async () => {
+    mswServer.use(http.get(`${API}/notification`, () => HttpResponse.json(notificationFixtures)));
+    const result = await lidarrModule.handlers['lidarr_get_notifications']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.count).toBe(notificationFixtures.length);
+    expect(data.notifications[0].name).toBe('Slack');
+    expect(data.notifications[0].implementation).toBe('Slack');
+  });
+});
+
+// ─── lidarr custom formats ────────────────────────────────────────────────────
+
+describe('lidarr_list_custom_formats', () => {
+  it('returns format list with count', async () => {
+    mswServer.use(http.get(`${API}/customformat`, () => HttpResponse.json(customFormatFixtures)));
+    const result = await lidarrModule.handlers['lidarr_list_custom_formats']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.count).toBe(customFormatFixtures.length);
+    expect(data.customFormats[0].name).toBe('HDR10');
+  });
+});
+
+describe('lidarr_get_custom_format', () => {
+  it('returns full custom format object', async () => {
+    mswServer.use(http.get(`${API}/customformat/1`, () => HttpResponse.json(customFormatFixtures[0])));
+    const result = await lidarrModule.handlers['lidarr_get_custom_format']({ id: 1 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.id).toBe(1);
+    expect(data.name).toBe('HDR10');
+  });
+});
+
+describe('lidarr_create_custom_format', () => {
+  it('posts new format and returns success with id', async () => {
+    const created = { ...customFormatFixtures[0], id: 10, name: 'New Format' };
+    mswServer.use(http.post(`${API}/customformat`, () => HttpResponse.json(created, { status: 201 })));
+    const result = await lidarrModule.handlers['lidarr_create_custom_format']({ name: 'New Format' }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.id).toBe(10);
+  });
+});
+
+describe('lidarr_update_custom_format', () => {
+  it('puts updated format and returns success', async () => {
+    const updated = { ...customFormatFixtures[0], name: 'Updated HDR10' };
+    mswServer.use(http.put(`${API}/customformat/1`, () => HttpResponse.json(updated)));
+    const result = await lidarrModule.handlers['lidarr_update_custom_format']({ id: 1, format: customFormatFixtures[0] }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+  });
+});
+
+describe('lidarr_delete_custom_format', () => {
+  it('deletes format and returns success', async () => {
+    mswServer.use(http.delete(`${API}/customformat/1`, () => new HttpResponse(null, { status: 204 })));
+    const result = await lidarrModule.handlers['lidarr_delete_custom_format']({ id: 1 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+  });
+});
+
+// ─── lidarr import lists ──────────────────────────────────────────────────────
+
+describe('lidarr_get_import_lists', () => {
+  it('returns import list with implementation name', async () => {
+    mswServer.use(http.get(`${API}/importlist`, () => HttpResponse.json(importListFixtures)));
+    const result = await lidarrModule.handlers['lidarr_get_import_lists']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.count).toBe(importListFixtures.length);
+    expect(data.importLists[0].name).toBe('Trakt Popular');
+    expect(data.importLists[0].implementation).toBe('Trakt Popular');
+  });
+});
+
+describe('lidarr_update_import_list', () => {
+  it('puts updated import list and returns success', async () => {
+    const updated = { ...importListFixtures[0], enableAuto: true };
+    mswServer.use(http.put(`${API}/importlist/1`, () => HttpResponse.json(updated)));
+    const result = await lidarrModule.handlers['lidarr_update_import_list']({ id: 1, importList: importListFixtures[0] }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+  });
+});
+
+// ─── lidarr import exclusions ─────────────────────────────────────────────────
+
+describe('lidarr_get_import_exclusions', () => {
+  it('returns exclusion list', async () => {
+    const exclusions = [{ id: 1, title: 'Old Artist', year: 2010 }];
+    mswServer.use(http.get(`${API}/importlistexclusion`, () => HttpResponse.json(exclusions)));
+    const result = await lidarrModule.handlers['lidarr_get_import_exclusions']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.count).toBe(1);
+    expect(data.exclusions[0].title).toBe('Old Artist');
+  });
+});
+
+describe('lidarr_delete_import_exclusion', () => {
+  it('deletes exclusion and returns success message', async () => {
+    mswServer.use(http.delete(`${API}/importlistexclusion/1`, () => new HttpResponse(null, { status: 204 })));
+    const result = await lidarrModule.handlers['lidarr_delete_import_exclusion']({ exclusionId: 1 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.message).toContain('re-added');
+  });
+});
+
+// ─── lidarr tags ─────────────────────────────────────────────────────────────
+
+describe('lidarr_create_tag', () => {
+  it('posts new tag and returns id and label', async () => {
+    mswServer.use(http.post(`${API}/tag`, () => HttpResponse.json({ id: 5, label: 'new-tag' }, { status: 201 })));
+    const result = await lidarrModule.handlers['lidarr_create_tag']({ label: 'new-tag' }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.id).toBe(5);
+  });
+});
+
+describe('lidarr_delete_tag', () => {
+  it('deletes tag and returns success', async () => {
+    mswServer.use(http.delete(`${API}/tag/5`, () => new HttpResponse(null, { status: 204 })));
+    const result = await lidarrModule.handlers['lidarr_delete_tag']({ tagId: 5 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+  });
+});
+
+// ─── lidarr_update_quality_definition ────────────────────────────────────────
+
+describe('lidarr_update_quality_definition', () => {
+  it('puts updated definition and returns success', async () => {
+    const updated = { ...qualityDefinitionFixtures[0], minSize: 10 };
+    mswServer.use(http.put(`${API}/qualitydefinition/1`, () => HttpResponse.json(updated)));
+    const result = await lidarrModule.handlers['lidarr_update_quality_definition']({ id: 1, definition: qualityDefinitionFixtures[0] }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
   });
 });

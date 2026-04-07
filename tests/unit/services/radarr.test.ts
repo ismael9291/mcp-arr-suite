@@ -893,3 +893,309 @@ describe('radarr_grab_release', () => {
     await expect(radarrModule.handlers['radarr_grab_release']({ guid: 'x', indexerId: 1 }, {})).rejects.toThrow('Radarr is not configured');
   });
 });
+
+// ─── radarr_get_queue — diagnostic fields ────────────────────────────────────
+
+describe('radarr_get_queue diagnostic fields', () => {
+  const queueWithDiagnostics = {
+    totalRecords: 1,
+    records: [
+      {
+        title: 'Inception (2010)',
+        status: 'completed',
+        trackedDownloadStatus: 'warning',
+        trackedDownloadState: 'importBlocked',
+        statusMessages: [{ title: 'Already Imported', messages: ['File already exists in library'] }],
+        size: 2000,
+        sizeleft: 0,
+        timeleft: null,
+        downloadClient: 'SABnzbd',
+      },
+    ],
+  };
+
+  beforeEach(() => {
+    mswServer.use(http.get(`${API}/queue`, () => HttpResponse.json(queueWithDiagnostics)));
+  });
+
+  it('includes trackedDownloadStatus', async () => {
+    const result = await radarrModule.handlers['radarr_get_queue']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.items[0].trackedDownloadStatus).toBe('warning');
+  });
+
+  it('includes trackedDownloadState', async () => {
+    const result = await radarrModule.handlers['radarr_get_queue']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.items[0].trackedDownloadState).toBe('importBlocked');
+  });
+
+  it('includes statusMessages', async () => {
+    const result = await radarrModule.handlers['radarr_get_queue']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.items[0].statusMessages[0].title).toBe('Already Imported');
+  });
+});
+
+// ─── radarr_get_command_status ───────────────────────────────────────────────
+
+describe('radarr_get_command_status', () => {
+  const commandResponse = { id: 88, name: 'RescanMovie', status: 'completed', message: 'Completed', started: '2024-03-01T00:00:00Z', ended: '2024-03-01T00:01:00Z' };
+
+  it('returns command status fields', async () => {
+    mswServer.use(http.get(`${API}/command/88`, () => HttpResponse.json(commandResponse)));
+    const result = await radarrModule.handlers['radarr_get_command_status']({ commandId: 88 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.id).toBe(88);
+    expect(data.name).toBe('RescanMovie');
+    expect(data.status).toBe('completed');
+    expect(data.ended).toBe('2024-03-01T00:01:00Z');
+  });
+
+  it('throws when radarr is not configured', async () => {
+    await expect(radarrModule.handlers['radarr_get_command_status']({ commandId: 1 }, {})).rejects.toThrow('Radarr is not configured');
+  });
+});
+
+// ─── radarr_refresh_movie (optional ID) ──────────────────────────────────────
+
+describe('radarr_refresh_movie (optional movieId)', () => {
+  it('refreshes specific movie when movieId provided', async () => {
+    mswServer.use(
+      http.get(`${API}/movie/1`, () => HttpResponse.json(movieFixtures[0])),
+      http.post(`${API}/command`, () => HttpResponse.json({ id: 60 })),
+    );
+    const result = await radarrModule.handlers['radarr_refresh_movie']({ movieId: 1 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.movie).toBeDefined();
+    expect(data.commandId).toBe(60);
+  });
+
+  it('refreshes all movies when movieId is omitted', async () => {
+    let commandBody: Record<string, unknown> = {};
+    mswServer.use(http.post(`${API}/command`, async ({ request }) => {
+      commandBody = await request.json() as Record<string, unknown>;
+      return HttpResponse.json({ id: 61 });
+    }));
+    const result = await radarrModule.handlers['radarr_refresh_movie']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.commandId).toBe(61);
+    expect(commandBody['name']).toBe('RefreshMovie');
+    expect(commandBody).not.toHaveProperty('movieIds');
+  });
+});
+
+// ─── radarr_trigger_rescan_movies ────────────────────────────────────────────
+
+describe('radarr_trigger_rescan_movies', () => {
+  it('posts RescanMovie command and returns commandId', async () => {
+    let commandName = '';
+    mswServer.use(http.post(`${API}/command`, async ({ request }) => {
+      const body = await request.json() as { name: string };
+      commandName = body.name;
+      return HttpResponse.json({ id: 300 });
+    }));
+    const result = await radarrModule.handlers['radarr_trigger_rescan_movies']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.commandId).toBe(300);
+    expect(commandName).toBe('RescanMovie');
+  });
+
+  it('throws when radarr is not configured', async () => {
+    await expect(radarrModule.handlers['radarr_trigger_rescan_movies']({}, {})).rejects.toThrow('Radarr is not configured');
+  });
+});
+
+// ─── radarr_trigger_missing_search ───────────────────────────────────────────
+
+describe('radarr_trigger_missing_search', () => {
+  it('posts MissingMoviesSearch command and returns commandId', async () => {
+    let commandName = '';
+    mswServer.use(http.post(`${API}/command`, async ({ request }) => {
+      const body = await request.json() as { name: string };
+      commandName = body.name;
+      return HttpResponse.json({ id: 301 });
+    }));
+    const result = await radarrModule.handlers['radarr_trigger_missing_search']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.commandId).toBe(301);
+    expect(commandName).toBe('MissingMoviesSearch');
+  });
+});
+
+// ─── radarr_trigger_rename_movies ────────────────────────────────────────────
+
+describe('radarr_trigger_rename_movies', () => {
+  it('posts RenameMovie for all movies when no IDs provided', async () => {
+    let commandBody: Record<string, unknown> = {};
+    mswServer.use(http.post(`${API}/command`, async ({ request }) => {
+      commandBody = await request.json() as Record<string, unknown>;
+      return HttpResponse.json({ id: 302 });
+    }));
+    const result = await radarrModule.handlers['radarr_trigger_rename_movies']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.commandId).toBe(302);
+    expect(commandBody['name']).toBe('RenameMovie');
+    expect(commandBody['movieIds']).toEqual([]);
+  });
+
+  it('posts RenameMovie with specific IDs', async () => {
+    let commandBody: Record<string, unknown> = {};
+    mswServer.use(http.post(`${API}/command`, async ({ request }) => {
+      commandBody = await request.json() as Record<string, unknown>;
+      return HttpResponse.json({ id: 303 });
+    }));
+    await radarrModule.handlers['radarr_trigger_rename_movies']({ movieIds: [10, 20] }, clients);
+    expect(commandBody['movieIds']).toEqual([10, 20]);
+  });
+});
+
+// ─── radarr_trigger_downloaded_scan ─────────────────────────────────────────
+
+describe('radarr_trigger_downloaded_scan', () => {
+  it('posts DownloadedMoviesScan command', async () => {
+    let commandName = '';
+    mswServer.use(http.post(`${API}/command`, async ({ request }) => {
+      const body = await request.json() as { name: string };
+      commandName = body.name;
+      return HttpResponse.json({ id: 304 });
+    }));
+    const result = await radarrModule.handlers['radarr_trigger_downloaded_scan']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(commandName).toBe('DownloadedMoviesScan');
+  });
+});
+
+// ─── radarr_bulk_update_movies ───────────────────────────────────────────────
+
+describe('radarr_bulk_update_movies', () => {
+  it('sends PUT to /movie/editor with movieIds and changes', async () => {
+    let body: Record<string, unknown> = {};
+    mswServer.use(http.put(`${API}/movie/editor`, async ({ request }) => {
+      body = await request.json() as Record<string, unknown>;
+      return new HttpResponse(null, { status: 204 });
+    }));
+    const result = await radarrModule.handlers['radarr_bulk_update_movies']({ movieIds: [1, 2], monitored: true, qualityProfileId: 4 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.movieIds).toEqual([1, 2]);
+    expect(body['movieIds']).toEqual([1, 2]);
+    expect(body['monitored']).toBe(true);
+    expect(body['qualityProfileId']).toBe(4);
+  });
+
+  it('throws when radarr is not configured', async () => {
+    await expect(radarrModule.handlers['radarr_bulk_update_movies']({ movieIds: [1] }, {})).rejects.toThrow('Radarr is not configured');
+  });
+});
+
+// ─── radarr_bulk_delete_movies ───────────────────────────────────────────────
+
+describe('radarr_bulk_delete_movies', () => {
+  it('sends DELETE to /movie/editor with movieIds', async () => {
+    let body: Record<string, unknown> = {};
+    mswServer.use(http.delete(`${API}/movie/editor`, async ({ request }) => {
+      body = await request.json() as Record<string, unknown>;
+      return new HttpResponse(null, { status: 204 });
+    }));
+    const result = await radarrModule.handlers['radarr_bulk_delete_movies']({ movieIds: [3, 4] }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(body['movieIds']).toEqual([3, 4]);
+    expect(body['deleteFiles']).toBe(false);
+  });
+
+  it('passes deleteFiles: true when requested', async () => {
+    let body: Record<string, unknown> = {};
+    mswServer.use(http.delete(`${API}/movie/editor`, async ({ request }) => {
+      body = await request.json() as Record<string, unknown>;
+      return new HttpResponse(null, { status: 204 });
+    }));
+    await radarrModule.handlers['radarr_bulk_delete_movies']({ movieIds: [5], deleteFiles: true }, clients);
+    expect(body['deleteFiles']).toBe(true);
+  });
+
+  it('throws when radarr is not configured', async () => {
+    await expect(radarrModule.handlers['radarr_bulk_delete_movies']({ movieIds: [1] }, {})).rejects.toThrow('Radarr is not configured');
+  });
+});
+
+// ─── radarr_get_manual_import ─────────────────────────────────────────────────
+
+describe('radarr_get_manual_import', () => {
+  const manualImportItems = [
+    {
+      id: 1,
+      path: '/downloads/inception.mkv',
+      relativePath: 'inception.mkv',
+      folderName: 'downloads',
+      name: 'Inception',
+      size: 10_000_000_000,
+      movie: { id: 1, title: 'Inception', year: 2010 },
+      quality: { quality: { name: 'Bluray-1080p' }, revision: { version: 1 } },
+      rejections: [],
+    },
+    {
+      id: 2,
+      path: '/downloads/unknown.mkv',
+      relativePath: 'unknown.mkv',
+      folderName: 'downloads',
+      name: 'unknown',
+      size: 500_000_000,
+      quality: { quality: { name: 'Unknown' }, revision: { version: 1 } },
+      rejections: [{ reason: 'No match found', type: 'permanent' }],
+    },
+  ];
+
+  it('returns items with quality and rejection fields', async () => {
+    mswServer.use(http.get(`${API}/manualimport`, () => HttpResponse.json(manualImportItems)));
+    const result = await radarrModule.handlers['radarr_get_manual_import']({ folder: '/downloads' }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.count).toBe(2);
+    expect(data.items[0].quality).toBe('Bluray-1080p');
+    expect(data.items[0].movie).toEqual({ id: 1, title: 'Inception', year: 2010 });
+    expect(data.items[0].rejections).toEqual([]);
+    expect(data.items[1].rejections).toHaveLength(1);
+  });
+
+  it('passes folder and filterExistingFiles params', async () => {
+    let params = new URLSearchParams();
+    mswServer.use(http.get(`${API}/manualimport`, ({ request }) => {
+      params = new URL(request.url).searchParams;
+      return HttpResponse.json([]);
+    }));
+    await radarrModule.handlers['radarr_get_manual_import']({ folder: '/nas/movies', filterExistingFiles: false }, clients);
+    expect(params.get('folder')).toBe('/nas/movies');
+    expect(params.get('filterExistingFiles')).toBe('false');
+  });
+
+  it('throws when radarr is not configured', async () => {
+    await expect(radarrModule.handlers['radarr_get_manual_import']({ folder: '/x' }, {})).rejects.toThrow('Radarr is not configured');
+  });
+});
+
+// ─── radarr_process_manual_import ────────────────────────────────────────────
+
+describe('radarr_process_manual_import', () => {
+  it('posts items to /manualimport and returns success', async () => {
+    let receivedItems: unknown[] = [];
+    mswServer.use(http.post(`${API}/manualimport`, async ({ request }) => {
+      receivedItems = await request.json() as unknown[];
+      return new HttpResponse(null, { status: 204 });
+    }));
+    const items = [{ id: 1, path: '/downloads/movie.mkv', relativePath: 'movie.mkv', folderName: 'downloads', name: 'movie', size: 1000, quality: { quality: { name: 'Bluray-1080p' }, revision: { version: 1 } }, rejections: [] }];
+    const result = await radarrModule.handlers['radarr_process_manual_import']({ items }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(receivedItems).toHaveLength(1);
+  });
+
+  it('throws when radarr is not configured', async () => {
+    await expect(radarrModule.handlers['radarr_process_manual_import']({ items: [] }, {})).rejects.toThrow('Radarr is not configured');
+  });
+});

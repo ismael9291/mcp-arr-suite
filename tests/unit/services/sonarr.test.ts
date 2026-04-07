@@ -876,3 +876,297 @@ describe('sonarr_grab_release', () => {
     await expect(sonarrModule.handlers['sonarr_grab_release']({ guid: 'x', indexerId: 1 }, {})).rejects.toThrow('Sonarr is not configured');
   });
 });
+
+// ─── sonarr_get_queue — diagnostic fields ────────────────────────────────────
+
+describe('sonarr_get_queue diagnostic fields', () => {
+  const queueWithDiagnostics = {
+    totalRecords: 1,
+    records: [
+      {
+        title: 'Breaking Bad S03E01',
+        status: 'completed',
+        trackedDownloadStatus: 'warning',
+        trackedDownloadState: 'importBlocked',
+        statusMessages: [{ title: 'Already Imported', messages: ['File already exists in library'] }],
+        size: 1000,
+        sizeleft: 0,
+        timeleft: null,
+        downloadClient: 'SABnzbd',
+      },
+    ],
+  };
+
+  beforeEach(() => {
+    mswServer.use(http.get(`${API}/queue`, () => HttpResponse.json(queueWithDiagnostics)));
+  });
+
+  it('includes trackedDownloadStatus in queue items', async () => {
+    const result = await sonarrModule.handlers['sonarr_get_queue']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.items[0].trackedDownloadStatus).toBe('warning');
+  });
+
+  it('includes trackedDownloadState in queue items', async () => {
+    const result = await sonarrModule.handlers['sonarr_get_queue']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.items[0].trackedDownloadState).toBe('importBlocked');
+  });
+
+  it('includes statusMessages in queue items', async () => {
+    const result = await sonarrModule.handlers['sonarr_get_queue']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.items[0].statusMessages).toHaveLength(1);
+    expect(data.items[0].statusMessages[0].title).toBe('Already Imported');
+  });
+});
+
+// ─── sonarr_get_command_status ───────────────────────────────────────────────
+
+describe('sonarr_get_command_status', () => {
+  const commandResponse = { id: 77, name: 'RefreshSeries', status: 'completed', message: 'Completed', started: '2024-03-01T00:00:00Z', ended: '2024-03-01T00:01:00Z' };
+
+  it('returns command status fields', async () => {
+    mswServer.use(http.get(`${API}/command/77`, () => HttpResponse.json(commandResponse)));
+    const result = await sonarrModule.handlers['sonarr_get_command_status']({ commandId: 77 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.id).toBe(77);
+    expect(data.name).toBe('RefreshSeries');
+    expect(data.status).toBe('completed');
+    expect(data.started).toBe('2024-03-01T00:00:00Z');
+  });
+
+  it('throws when sonarr is not configured', async () => {
+    await expect(sonarrModule.handlers['sonarr_get_command_status']({ commandId: 1 }, {})).rejects.toThrow('Sonarr is not configured');
+  });
+});
+
+// ─── sonarr_refresh_series (optional ID) ─────────────────────────────────────
+
+describe('sonarr_refresh_series (optional seriesId)', () => {
+  it('refreshes specific series when seriesId provided', async () => {
+    mswServer.use(
+      http.get(`${API}/series/1`, () => HttpResponse.json(seriesFixtures[0])),
+      http.post(`${API}/command`, () => HttpResponse.json({ id: 55 })),
+    );
+    const result = await sonarrModule.handlers['sonarr_refresh_series']({ seriesId: 1 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.series).toBeDefined();
+    expect(data.commandId).toBe(55);
+  });
+
+  it('refreshes all series when seriesId is omitted', async () => {
+    let commandBody: Record<string, unknown> = {};
+    mswServer.use(http.post(`${API}/command`, async ({ request }) => {
+      commandBody = await request.json() as Record<string, unknown>;
+      return HttpResponse.json({ id: 56 });
+    }));
+    const result = await sonarrModule.handlers['sonarr_refresh_series']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.commandId).toBe(56);
+    expect(commandBody['name']).toBe('RefreshSeries');
+    expect(commandBody).not.toHaveProperty('seriesId');
+  });
+});
+
+// ─── sonarr_trigger_rescan_series ────────────────────────────────────────────
+
+describe('sonarr_trigger_rescan_series', () => {
+  it('posts RescanSeries command and returns commandId', async () => {
+    let commandName = '';
+    mswServer.use(http.post(`${API}/command`, async ({ request }) => {
+      const body = await request.json() as { name: string };
+      commandName = body.name;
+      return HttpResponse.json({ id: 200 });
+    }));
+    const result = await sonarrModule.handlers['sonarr_trigger_rescan_series']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.commandId).toBe(200);
+    expect(commandName).toBe('RescanSeries');
+  });
+
+  it('throws when sonarr is not configured', async () => {
+    await expect(sonarrModule.handlers['sonarr_trigger_rescan_series']({}, {})).rejects.toThrow('Sonarr is not configured');
+  });
+});
+
+// ─── sonarr_trigger_rename_series ────────────────────────────────────────────
+
+describe('sonarr_trigger_rename_series', () => {
+  it('posts RenameSeries for all series when no IDs provided', async () => {
+    let commandBody: Record<string, unknown> = {};
+    mswServer.use(http.post(`${API}/command`, async ({ request }) => {
+      commandBody = await request.json() as Record<string, unknown>;
+      return HttpResponse.json({ id: 201 });
+    }));
+    const result = await sonarrModule.handlers['sonarr_trigger_rename_series']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.commandId).toBe(201);
+    expect(commandBody['name']).toBe('RenameSeries');
+    expect(commandBody['seriesIds']).toEqual([]);
+  });
+
+  it('posts RenameSeries with specific IDs', async () => {
+    let commandBody: Record<string, unknown> = {};
+    mswServer.use(http.post(`${API}/command`, async ({ request }) => {
+      commandBody = await request.json() as Record<string, unknown>;
+      return HttpResponse.json({ id: 202 });
+    }));
+    const result = await sonarrModule.handlers['sonarr_trigger_rename_series']({ seriesIds: [1, 2] }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.commandId).toBe(202);
+    expect(commandBody['seriesIds']).toEqual([1, 2]);
+  });
+});
+
+// ─── sonarr_trigger_downloaded_scan ─────────────────────────────────────────
+
+describe('sonarr_trigger_downloaded_scan', () => {
+  it('posts DownloadedEpisodesScan command', async () => {
+    let commandName = '';
+    mswServer.use(http.post(`${API}/command`, async ({ request }) => {
+      const body = await request.json() as { name: string };
+      commandName = body.name;
+      return HttpResponse.json({ id: 203 });
+    }));
+    const result = await sonarrModule.handlers['sonarr_trigger_downloaded_scan']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.commandId).toBe(203);
+    expect(commandName).toBe('DownloadedEpisodesScan');
+  });
+});
+
+// ─── sonarr_bulk_update_series ───────────────────────────────────────────────
+
+describe('sonarr_bulk_update_series', () => {
+  it('sends PUT to /series/editor with seriesIds and changes', async () => {
+    let body: Record<string, unknown> = {};
+    mswServer.use(http.put(`${API}/series/editor`, async ({ request }) => {
+      body = await request.json() as Record<string, unknown>;
+      return new HttpResponse(null, { status: 204 });
+    }));
+    const result = await sonarrModule.handlers['sonarr_bulk_update_series']({ seriesIds: [1, 2, 3], monitored: false }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.seriesIds).toEqual([1, 2, 3]);
+    expect(body['seriesIds']).toEqual([1, 2, 3]);
+    expect(body['monitored']).toBe(false);
+  });
+
+  it('throws when sonarr is not configured', async () => {
+    await expect(sonarrModule.handlers['sonarr_bulk_update_series']({ seriesIds: [1] }, {})).rejects.toThrow('Sonarr is not configured');
+  });
+});
+
+// ─── sonarr_bulk_delete_series ───────────────────────────────────────────────
+
+describe('sonarr_bulk_delete_series', () => {
+  it('sends DELETE to /series/editor with seriesIds', async () => {
+    let body: Record<string, unknown> = {};
+    mswServer.use(http.delete(`${API}/series/editor`, async ({ request }) => {
+      body = await request.json() as Record<string, unknown>;
+      return new HttpResponse(null, { status: 204 });
+    }));
+    const result = await sonarrModule.handlers['sonarr_bulk_delete_series']({ seriesIds: [5, 6] }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(body['seriesIds']).toEqual([5, 6]);
+    expect(body['deleteFiles']).toBe(false);
+  });
+
+  it('passes deleteFiles: true when requested', async () => {
+    let body: Record<string, unknown> = {};
+    mswServer.use(http.delete(`${API}/series/editor`, async ({ request }) => {
+      body = await request.json() as Record<string, unknown>;
+      return new HttpResponse(null, { status: 204 });
+    }));
+    await sonarrModule.handlers['sonarr_bulk_delete_series']({ seriesIds: [7], deleteFiles: true }, clients);
+    expect(body['deleteFiles']).toBe(true);
+  });
+
+  it('throws when sonarr is not configured', async () => {
+    await expect(sonarrModule.handlers['sonarr_bulk_delete_series']({ seriesIds: [1] }, {})).rejects.toThrow('Sonarr is not configured');
+  });
+});
+
+// ─── sonarr_get_manual_import ─────────────────────────────────────────────────
+
+describe('sonarr_get_manual_import', () => {
+  const manualImportItems = [
+    {
+      id: 1,
+      path: '/downloads/show.s01e01.mkv',
+      relativePath: 'show.s01e01.mkv',
+      folderName: 'downloads',
+      name: 'show.s01e01',
+      size: 1_000_000_000,
+      series: { id: 1, title: 'Breaking Bad' },
+      seasonNumber: 1,
+      episodes: [{ id: 101, title: 'Pilot' }],
+      quality: { quality: { name: 'Bluray-1080p' }, revision: { version: 1 } },
+      rejections: [],
+    },
+    {
+      id: 2,
+      path: '/downloads/unknown.mkv',
+      relativePath: 'unknown.mkv',
+      folderName: 'downloads',
+      name: 'unknown',
+      size: 500_000_000,
+      quality: { quality: { name: 'Unknown' }, revision: { version: 1 } },
+      rejections: [{ reason: 'No match found', type: 'permanent' }],
+    },
+  ];
+
+  it('returns items with quality and rejection fields', async () => {
+    mswServer.use(http.get(`${API}/manualimport`, () => HttpResponse.json(manualImportItems)));
+    const result = await sonarrModule.handlers['sonarr_get_manual_import']({ folder: '/downloads' }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.count).toBe(2);
+    expect(data.items[0].quality).toBe('Bluray-1080p');
+    expect(data.items[0].series).toEqual({ id: 1, title: 'Breaking Bad' });
+    expect(data.items[0].rejections).toEqual([]);
+    expect(data.items[1].rejections).toHaveLength(1);
+  });
+
+  it('passes folder and filterExistingFiles params', async () => {
+    let params = new URLSearchParams();
+    mswServer.use(http.get(`${API}/manualimport`, ({ request }) => {
+      params = new URL(request.url).searchParams;
+      return HttpResponse.json([]);
+    }));
+    await sonarrModule.handlers['sonarr_get_manual_import']({ folder: '/nas/tv', filterExistingFiles: false }, clients);
+    expect(params.get('folder')).toBe('/nas/tv');
+    expect(params.get('filterExistingFiles')).toBe('false');
+  });
+
+  it('throws when sonarr is not configured', async () => {
+    await expect(sonarrModule.handlers['sonarr_get_manual_import']({ folder: '/x' }, {})).rejects.toThrow('Sonarr is not configured');
+  });
+});
+
+// ─── sonarr_process_manual_import ────────────────────────────────────────────
+
+describe('sonarr_process_manual_import', () => {
+  it('posts items to /manualimport and returns success', async () => {
+    let receivedItems: unknown[] = [];
+    mswServer.use(http.post(`${API}/manualimport`, async ({ request }) => {
+      receivedItems = await request.json() as unknown[];
+      return new HttpResponse(null, { status: 204 });
+    }));
+    const items = [{ id: 1, path: '/downloads/show.mkv', relativePath: 'show.mkv', folderName: 'downloads', name: 'show', size: 1000, quality: { quality: { name: 'Bluray-1080p' }, revision: { version: 1 } }, rejections: [] }];
+    const result = await sonarrModule.handlers['sonarr_process_manual_import']({ items }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(receivedItems).toHaveLength(1);
+  });
+
+  it('throws when sonarr is not configured', async () => {
+    await expect(sonarrModule.handlers['sonarr_process_manual_import']({ items: [] }, {})).rejects.toThrow('Sonarr is not configured');
+  });
+});

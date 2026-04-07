@@ -5,7 +5,7 @@
 import type { ToolModule } from '../types.js';
 import { ok } from '../types.js';
 import { formatBytes, truncate, paginate, clampLimit, clampOffset, today, daysFromNow } from '../shared/formatting.js';
-import type { Artist } from '../clients/arr-client.js';
+import type { Artist, CustomFormat, ImportList, QualityDefinition } from '../clients/arr-client.js';
 
 export const lidarrModule: ToolModule = {
   tools: [
@@ -273,6 +273,199 @@ export const lidarrModule: ToolModule = {
         required: ['albumIds', 'monitored'],
       },
     },
+    {
+      name: 'lidarr_get_command_status',
+      description: 'Poll the status of an async command previously triggered in Lidarr. Pass the commandId returned by a trigger tool.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          commandId: { type: 'number', description: 'Command ID returned by a trigger tool' },
+        },
+        required: ['commandId'],
+      },
+    },
+    {
+      name: 'lidarr_trigger_backup',
+      description: 'Trigger a database backup in Lidarr.',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
+    {
+      name: 'lidarr_trigger_rss_sync',
+      description: 'Trigger an immediate RSS feed sync across all configured indexers in Lidarr.',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
+    {
+      name: 'lidarr_trigger_refresh_monitored_downloads',
+      description: 'Trigger Lidarr to refresh its view of monitored downloads — useful for checking stalled or stuck downloads.',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
+    {
+      name: 'lidarr_trigger_cutoff_unmet_search',
+      description: 'Trigger a search for all monitored albums that have a file but have not met the quality cutoff (upgrade candidates).',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
+    {
+      name: 'lidarr_trigger_rescan_artists',
+      description: 'Rescan disk for all artists to link existing files Lidarr does not know about.',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
+    {
+      name: 'lidarr_trigger_refresh_all_artists',
+      description: 'Trigger a metadata refresh for all artists in Lidarr.',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
+    {
+      name: 'lidarr_trigger_rename_artists',
+      description: 'Rename track files on disk to match current Lidarr naming settings for all artists.',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
+    {
+      name: 'lidarr_trigger_downloaded_scan',
+      description: 'Force a scan of the completed downloads folder to import any files that were not auto-imported.',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
+    {
+      name: 'lidarr_get_system_tasks',
+      description: 'List all scheduled background tasks in Lidarr with last and next run times.',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
+    {
+      name: 'lidarr_get_logs',
+      description: 'Fetch recent Lidarr log entries.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          page: { type: 'number', description: 'Page number (default: 1)' },
+          pageSize: { type: 'number', description: 'Results per page (default: 20)' },
+          level: { type: 'string', description: 'Filter by log level (trace, debug, info, warn, error, fatal)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'lidarr_get_notifications',
+      description: 'List all configured notification connections in Lidarr.',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
+    {
+      name: 'lidarr_list_custom_formats',
+      description: 'List all custom formats defined in Lidarr.',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
+    {
+      name: 'lidarr_get_custom_format',
+      description: 'Get details of a specific custom format in Lidarr.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          id: { type: 'number', description: 'Custom format ID' },
+        },
+        required: ['id'],
+      },
+    },
+    {
+      name: 'lidarr_create_custom_format',
+      description: 'Create a new custom format in Lidarr.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          name: { type: 'string', description: 'Custom format name' },
+          includeCustomFormatWhenRenaming: { type: 'boolean', description: 'Include in renaming (default: false)' },
+          specifications: { type: 'array', description: 'Format specifications' },
+        },
+        required: ['name'],
+      },
+    },
+    {
+      name: 'lidarr_update_custom_format',
+      description: 'Update an existing custom format in Lidarr.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          id: { type: 'number', description: 'Custom format ID' },
+          format: { type: 'object', description: 'Full custom format object (from lidarr_get_custom_format)' },
+        },
+        required: ['id', 'format'],
+      },
+    },
+    {
+      name: 'lidarr_delete_custom_format',
+      description: 'Delete a custom format from Lidarr.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          id: { type: 'number', description: 'Custom format ID' },
+        },
+        required: ['id'],
+      },
+    },
+    {
+      name: 'lidarr_get_import_lists',
+      description: 'Get all configured import lists in Lidarr.',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
+    {
+      name: 'lidarr_update_import_list',
+      description: 'Update an import list configuration in Lidarr.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          id: { type: 'number', description: 'Import list ID' },
+          importList: { type: 'object', description: 'Full import list object (from lidarr_get_import_lists)' },
+        },
+        required: ['id', 'importList'],
+      },
+    },
+    {
+      name: 'lidarr_get_import_exclusions',
+      description: 'List artists that are excluded from import in Lidarr.',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
+    {
+      name: 'lidarr_delete_import_exclusion',
+      description: 'Remove an artist from the Lidarr import exclusion list, allowing it to be re-added.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          exclusionId: { type: 'number', description: 'Exclusion ID (from lidarr_get_import_exclusions)' },
+        },
+        required: ['exclusionId'],
+      },
+    },
+    {
+      name: 'lidarr_create_tag',
+      description: 'Create a new tag in Lidarr.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          label: { type: 'string', description: 'Tag label' },
+        },
+        required: ['label'],
+      },
+    },
+    {
+      name: 'lidarr_delete_tag',
+      description: 'Delete a tag from Lidarr.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          tagId: { type: 'number', description: 'Tag ID (from lidarr_get_tags)' },
+        },
+        required: ['tagId'],
+      },
+    },
+    {
+      name: 'lidarr_update_quality_definition',
+      description: 'Update a quality definition size range in Lidarr.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          id: { type: 'number', description: 'Quality definition ID (from lidarr_get_quality_profiles)' },
+          definition: { type: 'object', description: 'Full quality definition object with updated minSize/maxSize' },
+        },
+        required: ['id', 'definition'],
+      },
+    },
   ],
 
   handlers: {
@@ -335,6 +528,9 @@ export const lidarrModule: ToolModule = {
         items: items.map(q => ({
           title: q.title,
           status: q.status,
+          trackedDownloadStatus: q.trackedDownloadStatus,
+          trackedDownloadState: q.trackedDownloadState,
+          statusMessages: q.statusMessages,
           progress: q.size > 0 ? `${((1 - q.sizeleft / q.size) * 100).toFixed(1)}%` : '0%',
           timeLeft: q.timeleft,
           downloadClient: q.downloadClient,
@@ -658,6 +854,216 @@ export const lidarrModule: ToolModule = {
         albumIds,
         monitored,
       });
+    },
+
+    lidarr_get_command_status: async (args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const commandId = args.commandId as number;
+      const result = await clients.lidarr.getCommandStatus(commandId);
+      return ok({ id: result.id, name: result.name, status: result.status, message: result.message, started: result.started, ended: result.ended });
+    },
+
+    lidarr_trigger_backup: async (_args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const result = await clients.lidarr.triggerBackup();
+      return ok({ success: true, message: 'Backup triggered', commandId: result.id });
+    },
+
+    lidarr_trigger_rss_sync: async (_args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const result = await clients.lidarr.runCommand('RssSync');
+      return ok({ success: true, message: 'Triggered RSS sync', commandId: result.id });
+    },
+
+    lidarr_trigger_refresh_monitored_downloads: async (_args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const result = await clients.lidarr.runCommand('RefreshMonitoredDownloads');
+      return ok({ success: true, message: 'Triggered refresh of monitored downloads', commandId: result.id });
+    },
+
+    lidarr_trigger_cutoff_unmet_search: async (_args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const result = await clients.lidarr.runCommand('AlbumCutoffUnmetSearch');
+      return ok({ success: true, message: 'Triggered cutoff-unmet album search', commandId: result.id });
+    },
+
+    lidarr_trigger_rescan_artists: async (_args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const result = await clients.lidarr.runCommand('RescanArtists');
+      return ok({ success: true, message: 'Disk rescan triggered for all artists', commandId: result.id });
+    },
+
+    lidarr_trigger_refresh_all_artists: async (_args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const result = await clients.lidarr.runCommand('RefreshArtist');
+      return ok({ success: true, message: 'Metadata refresh triggered for all artists', commandId: result.id });
+    },
+
+    lidarr_trigger_rename_artists: async (_args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const result = await clients.lidarr.runCommand('RenameArtist', { artistIds: [] });
+      return ok({ success: true, message: 'Rename triggered for all artists', commandId: result.id });
+    },
+
+    lidarr_trigger_downloaded_scan: async (_args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const result = await clients.lidarr.runCommand('DownloadedAlbumsScan');
+      return ok({ success: true, message: 'Triggered scan of completed downloads folder', commandId: result.id });
+    },
+
+    lidarr_get_system_tasks: async (_args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const tasks = await clients.lidarr.getSystemTasks();
+      return ok({
+        count: tasks.length,
+        tasks: tasks.map(t => ({
+          id: t.id,
+          name: t.name,
+          taskName: t.taskName,
+          interval: t.interval,
+          lastExecution: t.lastExecution,
+          nextExecution: t.nextExecution,
+          lastDuration: t.lastDuration,
+          isRunning: t.isRunning,
+        })),
+      });
+    },
+
+    lidarr_get_logs: async (args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const page = (args.page as number | undefined) ?? 1;
+      const pageSize = (args.pageSize as number | undefined) ?? 20;
+      const level = args.level as string | undefined;
+      const result = await clients.lidarr.getLogs(page, pageSize, level);
+      return ok({
+        page,
+        pageSize,
+        totalRecords: result.totalRecords,
+        records: result.records.map(r => ({
+          id: r.id,
+          time: r.time,
+          level: r.level,
+          logger: r.logger,
+          message: r.message,
+          exception: r.exception,
+        })),
+      });
+    },
+
+    lidarr_get_notifications: async (_args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const notifications = await clients.lidarr.getNotifications();
+      return ok({
+        count: notifications.length,
+        notifications: notifications.map(n => ({
+          id: n.id,
+          name: n.name,
+          implementation: n.implementationName,
+          onGrab: n.onGrab,
+          onDownload: n.onDownload,
+          onUpgrade: n.onUpgrade,
+          tags: n.tags,
+        })),
+      });
+    },
+
+    lidarr_list_custom_formats: async (_args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const formats = await clients.lidarr.getCustomFormats();
+      return ok({ count: formats.length, customFormats: formats.map(f => ({ id: f.id, name: f.name, includeCustomFormatWhenRenaming: f.includeCustomFormatWhenRenaming })) });
+    },
+
+    lidarr_get_custom_format: async (args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const id = args.id as number;
+      const format = await clients.lidarr.getCustomFormat(id);
+      return ok(format);
+    },
+
+    lidarr_create_custom_format: async (args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const { name, includeCustomFormatWhenRenaming = false, specifications = [] } = args as {
+        name: string;
+        includeCustomFormatWhenRenaming?: boolean;
+        specifications?: CustomFormat['specifications'];
+      };
+      const created = await clients.lidarr.createCustomFormat({ name, includeCustomFormatWhenRenaming, specifications });
+      return ok({ success: true, message: `Created custom format "${created.name}"`, id: created.id });
+    },
+
+    lidarr_update_custom_format: async (args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const id = args.id as number;
+      const format = args.format as CustomFormat;
+      const updated = await clients.lidarr.updateCustomFormat(id, { ...format, id });
+      return ok({ success: true, message: `Updated custom format "${updated.name}"`, id: updated.id });
+    },
+
+    lidarr_delete_custom_format: async (args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const id = args.id as number;
+      await clients.lidarr.deleteCustomFormat(id);
+      return ok({ success: true, message: `Deleted custom format ${id}` });
+    },
+
+    lidarr_get_import_lists: async (_args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const lists = await clients.lidarr.getImportLists();
+      return ok({
+        count: lists.length,
+        importLists: lists.map(l => ({
+          id: l.id,
+          name: l.name,
+          implementation: l.implementationName,
+          enabled: l.enabled,
+          enableAuto: l.enableAuto,
+          qualityProfileId: l.qualityProfileId,
+          tags: l.tags,
+        })),
+      });
+    },
+
+    lidarr_update_import_list: async (args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const id = args.id as number;
+      const importList = args.importList as ImportList;
+      const updated = await clients.lidarr.updateImportList(id, { ...importList, id });
+      return ok({ success: true, message: `Updated import list "${updated.name}"`, id: updated.id });
+    },
+
+    lidarr_get_import_exclusions: async (_args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const exclusions = await clients.lidarr.getImportExclusions();
+      return ok({ count: exclusions.length, exclusions: exclusions.map(e => ({ id: e.id, title: e.title, year: e.year })) });
+    },
+
+    lidarr_delete_import_exclusion: async (args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const exclusionId = args.exclusionId as number;
+      await clients.lidarr.deleteImportExclusion(exclusionId);
+      return ok({ success: true, message: `Removed exclusion ${exclusionId} — artist can now be re-added` });
+    },
+
+    lidarr_create_tag: async (args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const label = args.label as string;
+      const tag = await clients.lidarr.createTag(label);
+      return ok({ success: true, message: `Created tag "${tag.label}"`, id: tag.id });
+    },
+
+    lidarr_delete_tag: async (args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const tagId = args.tagId as number;
+      await clients.lidarr.deleteTag(tagId);
+      return ok({ success: true, message: `Deleted tag ${tagId}` });
+    },
+
+    lidarr_update_quality_definition: async (args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const id = args.id as number;
+      const definition = args.definition as QualityDefinition;
+      const updated = await clients.lidarr.updateQualityDefinition(id, { ...definition, id });
+      return ok({ success: true, message: `Updated quality definition "${updated.title}"`, id: updated.id });
     },
   },
 };

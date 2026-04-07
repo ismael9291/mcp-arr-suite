@@ -194,6 +194,200 @@ describe('SonarrClient', () => {
   });
 });
 
+// ─── getCommandStatus ─────────────────────────────────────────────────────────
+
+describe('getCommandStatus', () => {
+  it('fetches command status from base class', async () => {
+    const commandResponse = { id: 42, name: 'RescanMovie', status: 'completed', message: 'Done', started: '2024-01-01T00:00:00Z', ended: '2024-01-01T00:00:05Z' };
+    mswServer.use(http.get(`${RADARR}/api/v3/command/42`, () => HttpResponse.json(commandResponse)));
+    const client = new RadarrClient({ url: RADARR, apiKey: 'k' });
+    const result = await client.getCommandStatus(42);
+    expect(result.id).toBe(42);
+    expect(result.name).toBe('RescanMovie');
+    expect(result.status).toBe('completed');
+  });
+
+  it('works from SonarrClient (inherited from base)', async () => {
+    const commandResponse = { id: 5, name: 'RefreshSeries', status: 'started', message: 'Running' };
+    mswServer.use(http.get(`${SONARR}/api/v3/command/5`, () => HttpResponse.json(commandResponse)));
+    const client = new SonarrClient({ url: SONARR, apiKey: 'k' });
+    const result = await client.getCommandStatus(5);
+    expect(result.status).toBe('started');
+  });
+});
+
+// ─── SonarrClient new methods ─────────────────────────────────────────────────
+
+describe('SonarrClient bulk and rescan methods', () => {
+  let client: SonarrClient;
+  beforeAll(() => { client = new SonarrClient({ url: SONARR, apiKey: 'k' }); });
+
+  it('rescanAllSeries posts RescanSeries command', async () => {
+    let body: Record<string, unknown> = {};
+    mswServer.use(http.post(`${SONARR}/api/v3/command`, async ({ request }) => {
+      body = await request.json() as Record<string, unknown>;
+      return HttpResponse.json({ id: 100 });
+    }));
+    const result = await client.rescanAllSeries();
+    expect(result.id).toBe(100);
+    expect(body['name']).toBe('RescanSeries');
+  });
+
+  it('refreshSeries with no args omits seriesId from body', async () => {
+    let body: Record<string, unknown> = {};
+    mswServer.use(http.post(`${SONARR}/api/v3/command`, async ({ request }) => {
+      body = await request.json() as Record<string, unknown>;
+      return HttpResponse.json({ id: 101 });
+    }));
+    await client.refreshSeries();
+    expect(body['name']).toBe('RefreshSeries');
+    expect(body).not.toHaveProperty('seriesId');
+  });
+
+  it('refreshSeries with seriesId includes it in body', async () => {
+    let body: Record<string, unknown> = {};
+    mswServer.use(http.post(`${SONARR}/api/v3/command`, async ({ request }) => {
+      body = await request.json() as Record<string, unknown>;
+      return HttpResponse.json({ id: 102 });
+    }));
+    await client.refreshSeries(1);
+    expect(body['seriesId']).toBe(1);
+  });
+
+  it('bulkUpdateSeries sends PUT to /series/editor', async () => {
+    let body: Record<string, unknown> = {};
+    mswServer.use(http.put(`${SONARR}/api/v3/series/editor`, async ({ request }) => {
+      body = await request.json() as Record<string, unknown>;
+      return new HttpResponse(null, { status: 204 });
+    }));
+    await client.bulkUpdateSeries([1, 2], { monitored: false });
+    expect(body['seriesIds']).toEqual([1, 2]);
+    expect(body['monitored']).toBe(false);
+  });
+
+  it('bulkDeleteSeries sends DELETE to /series/editor', async () => {
+    let body: Record<string, unknown> = {};
+    mswServer.use(http.delete(`${SONARR}/api/v3/series/editor`, async ({ request }) => {
+      body = await request.json() as Record<string, unknown>;
+      return new HttpResponse(null, { status: 204 });
+    }));
+    await client.bulkDeleteSeries([3], true, false);
+    expect(body['seriesIds']).toEqual([3]);
+    expect(body['deleteFiles']).toBe(true);
+  });
+
+  it('getManualImport sends correct query params', async () => {
+    let params = new URLSearchParams();
+    mswServer.use(http.get(`${SONARR}/api/v3/manualimport`, ({ request }) => {
+      params = new URL(request.url).searchParams;
+      return HttpResponse.json([]);
+    }));
+    await client.getManualImport('/downloads', false, 2, 25);
+    expect(params.get('folder')).toBe('/downloads');
+    expect(params.get('filterExistingFiles')).toBe('false');
+    expect(params.get('page')).toBe('2');
+    expect(params.get('pageSize')).toBe('25');
+  });
+
+  it('processManualImport posts items to /manualimport', async () => {
+    let receivedBody: unknown = null;
+    mswServer.use(http.post(`${SONARR}/api/v3/manualimport`, async ({ request }) => {
+      receivedBody = await request.json();
+      return new HttpResponse(null, { status: 204 });
+    }));
+    const items = [{ id: 1, path: '/x.mkv', relativePath: 'x.mkv', folderName: '', name: 'x', size: 0, quality: { quality: { name: 'HDTV' }, revision: { version: 1 } }, rejections: [] }];
+    await client.processManualImport(items as import('../../../src/clients/arr-client.js').ManualImportItem[]);
+    expect(Array.isArray(receivedBody)).toBe(true);
+  });
+});
+
+// ─── RadarrClient new methods ─────────────────────────────────────────────────
+
+describe('RadarrClient bulk and rescan methods', () => {
+  let client: RadarrClient;
+  beforeAll(() => { client = new RadarrClient({ url: RADARR, apiKey: 'k' }); });
+
+  it('rescanAllMovies posts RescanMovie command', async () => {
+    let body: Record<string, unknown> = {};
+    mswServer.use(http.post(`${RADARR}/api/v3/command`, async ({ request }) => {
+      body = await request.json() as Record<string, unknown>;
+      return HttpResponse.json({ id: 200 });
+    }));
+    const result = await client.rescanAllMovies();
+    expect(result.id).toBe(200);
+    expect(body['name']).toBe('RescanMovie');
+  });
+
+  it('refreshMovie with no args omits movieIds from body', async () => {
+    let body: Record<string, unknown> = {};
+    mswServer.use(http.post(`${RADARR}/api/v3/command`, async ({ request }) => {
+      body = await request.json() as Record<string, unknown>;
+      return HttpResponse.json({ id: 201 });
+    }));
+    await client.refreshMovie();
+    expect(body['name']).toBe('RefreshMovie');
+    expect(body).not.toHaveProperty('movieIds');
+  });
+
+  it('refreshMovie with movieId wraps it in array', async () => {
+    let body: Record<string, unknown> = {};
+    mswServer.use(http.post(`${RADARR}/api/v3/command`, async ({ request }) => {
+      body = await request.json() as Record<string, unknown>;
+      return HttpResponse.json({ id: 202 });
+    }));
+    await client.refreshMovie(5);
+    expect(body['movieIds']).toEqual([5]);
+  });
+
+  it('bulkUpdateMovies sends PUT to /movie/editor', async () => {
+    let body: Record<string, unknown> = {};
+    mswServer.use(http.put(`${RADARR}/api/v3/movie/editor`, async ({ request }) => {
+      body = await request.json() as Record<string, unknown>;
+      return new HttpResponse(null, { status: 204 });
+    }));
+    await client.bulkUpdateMovies([1, 2, 3], { monitored: true, qualityProfileId: 4 });
+    expect(body['movieIds']).toEqual([1, 2, 3]);
+    expect(body['monitored']).toBe(true);
+    expect(body['qualityProfileId']).toBe(4);
+  });
+
+  it('bulkDeleteMovies sends DELETE to /movie/editor', async () => {
+    let body: Record<string, unknown> = {};
+    mswServer.use(http.delete(`${RADARR}/api/v3/movie/editor`, async ({ request }) => {
+      body = await request.json() as Record<string, unknown>;
+      return new HttpResponse(null, { status: 204 });
+    }));
+    await client.bulkDeleteMovies([7, 8], false, true);
+    expect(body['movieIds']).toEqual([7, 8]);
+    expect(body['addImportExclusion']).toBe(true);
+  });
+});
+
+// ─── LidarrClient import exclusion methods ────────────────────────────────────
+
+describe('LidarrClient import exclusions', () => {
+  let client: LidarrClient;
+  beforeAll(() => { client = new LidarrClient({ url: LIDARR, apiKey: 'k' }); });
+
+  it('getImportExclusions fetches from /api/v1/importlistexclusion', async () => {
+    const exclusions = [{ id: 1, title: 'Old Band', year: 2010 }];
+    mswServer.use(http.get(`${LIDARR}/api/v1/importlistexclusion`, () => HttpResponse.json(exclusions)));
+    const result = await client.getImportExclusions();
+    expect(result).toHaveLength(1);
+    expect(result[0].title).toBe('Old Band');
+  });
+
+  it('deleteImportExclusion sends DELETE to correct endpoint', async () => {
+    let calledPath = '';
+    mswServer.use(http.delete(`${LIDARR}/api/v1/importlistexclusion/5`, ({ request }) => {
+      calledPath = new URL(request.url).pathname;
+      return new HttpResponse(null, { status: 204 });
+    }));
+    await client.deleteImportExclusion(5);
+    expect(calledPath).toBe('/api/v1/importlistexclusion/5');
+  });
+});
+
 // ─── Import: beforeAll ────────────────────────────────────────────────────────
 
 function beforeAll(fn: () => void) {

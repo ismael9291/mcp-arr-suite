@@ -533,6 +533,21 @@ export interface ImportExclusion {
   tmdbId?: number;
 }
 
+export interface ManualImportItem {
+  id: number;
+  path: string;
+  relativePath: string;
+  folderName: string;
+  name: string;
+  size: number;
+  movie?: { id: number; title: string; year: number };
+  series?: { id: number; title: string };
+  seasonNumber?: number;
+  episodes?: Array<{ id: number; title: string }>;
+  quality: { quality: { name: string }; revision: { version: number } };
+  rejections: Array<{ reason: string; type: string }>;
+}
+
 export interface CustomFormat {
   id: number;
   name: string;
@@ -841,6 +856,17 @@ export class ArrClient {
     });
   }
 
+  async getCommandStatus(commandId: number): Promise<{
+    id: number;
+    name: string;
+    status: string;
+    message: string;
+    started?: string;
+    ended?: string;
+  }> {
+    return this.request(`/command/${commandId}`);
+  }
+
   async testConnection(): Promise<boolean> {
     try {
       await this.getStatus();
@@ -906,11 +932,10 @@ export class SonarrClient extends ArrClient {
     });
   }
 
-  async refreshSeries(seriesId: number): Promise<{ id: number }> {
-    return this.request<{ id: number }>('/command', {
-      method: 'POST',
-      body: JSON.stringify({ name: 'RefreshSeries', seriesId }),
-    });
+  async refreshSeries(seriesId?: number): Promise<{ id: number }> {
+    const body: Record<string, unknown> = { name: 'RefreshSeries' };
+    if (seriesId !== undefined) body.seriesId = seriesId;
+    return this.request<{ id: number }>('/command', { method: 'POST', body: JSON.stringify(body) });
   }
 
   async deleteSeries(seriesId: number, deleteFiles = false, addImportListExclusion = false): Promise<void> {
@@ -925,6 +950,47 @@ export class SonarrClient extends ArrClient {
     return this.request<Series>(`/series/${seriesId}`, {
       method: 'PUT',
       body: JSON.stringify({ ...existing, ...changes }),
+    });
+  }
+
+  async rescanAllSeries(): Promise<{ id: number }> {
+    return this.runCommand('RescanSeries');
+  }
+
+  async bulkUpdateSeries(seriesIds: number[], changes: {
+    monitored?: boolean;
+    qualityProfileId?: number;
+    tags?: number[];
+    applyTags?: 'add' | 'remove' | 'replace';
+  }): Promise<void> {
+    await this.request<void>('/series/editor', {
+      method: 'PUT',
+      body: JSON.stringify({ seriesIds, ...changes }),
+    });
+  }
+
+  async bulkDeleteSeries(seriesIds: number[], deleteFiles = false, addImportListExclusion = false): Promise<void> {
+    await this.request<void>('/series/editor', {
+      method: 'DELETE',
+      body: JSON.stringify({ seriesIds, deleteFiles, addImportListExclusion }),
+    });
+  }
+
+  async getManualImport(folder: string, filterExistingFiles = true, page = 1, pageSize = 50): Promise<ManualImportItem[]> {
+    const params = new URLSearchParams({
+      folder,
+      filterExistingFiles: String(filterExistingFiles),
+      page: String(page),
+      pageSize: String(pageSize),
+      sortKey: 'relativePath',
+    });
+    return this.request<ManualImportItem[]>(`/manualimport?${params}`);
+  }
+
+  async processManualImport(items: ManualImportItem[]): Promise<void> {
+    await this.request<void>('/manualimport', {
+      method: 'POST',
+      body: JSON.stringify(items),
     });
   }
 
@@ -1062,11 +1128,10 @@ export class RadarrClient extends ArrClient {
     });
   }
 
-  async refreshMovie(movieId: number): Promise<{ id: number }> {
-    return this.request<{ id: number }>('/command', {
-      method: 'POST',
-      body: JSON.stringify({ name: 'RefreshMovie', movieIds: [movieId] }),
-    });
+  async refreshMovie(movieId?: number): Promise<{ id: number }> {
+    const body: Record<string, unknown> = { name: 'RefreshMovie' };
+    if (movieId !== undefined) body.movieIds = [movieId];
+    return this.request<{ id: number }>('/command', { method: 'POST', body: JSON.stringify(body) });
   }
 
   async deleteMovie(movieId: number, deleteFiles = false, addImportExclusion = false): Promise<void> {
@@ -1081,6 +1146,47 @@ export class RadarrClient extends ArrClient {
     return this.request<Movie>(`/movie/${movieId}`, {
       method: 'PUT',
       body: JSON.stringify({ ...existing, ...changes }),
+    });
+  }
+
+  async rescanAllMovies(): Promise<{ id: number }> {
+    return this.runCommand('RescanMovie');
+  }
+
+  async bulkUpdateMovies(movieIds: number[], changes: {
+    monitored?: boolean;
+    qualityProfileId?: number;
+    tags?: number[];
+    applyTags?: 'add' | 'remove' | 'replace';
+  }): Promise<void> {
+    await this.request<void>('/movie/editor', {
+      method: 'PUT',
+      body: JSON.stringify({ movieIds, ...changes }),
+    });
+  }
+
+  async bulkDeleteMovies(movieIds: number[], deleteFiles = false, addImportExclusion = false): Promise<void> {
+    await this.request<void>('/movie/editor', {
+      method: 'DELETE',
+      body: JSON.stringify({ movieIds, deleteFiles, addImportExclusion }),
+    });
+  }
+
+  async getManualImport(folder: string, filterExistingFiles = true, page = 1, pageSize = 50): Promise<ManualImportItem[]> {
+    const params = new URLSearchParams({
+      folder,
+      filterExistingFiles: String(filterExistingFiles),
+      page: String(page),
+      pageSize: String(pageSize),
+      sortKey: 'relativePath',
+    });
+    return this.request<ManualImportItem[]>(`/manualimport?${params}`);
+  }
+
+  async processManualImport(items: ManualImportItem[]): Promise<void> {
+    await this.request<void>('/manualimport', {
+      method: 'POST',
+      body: JSON.stringify(items),
     });
   }
 
@@ -1320,6 +1426,14 @@ export class LidarrClient extends ArrClient {
       method: 'PUT',
       body: JSON.stringify({ albumIds, monitored }),
     });
+  }
+
+  async getImportExclusions(): Promise<ImportExclusion[]> {
+    return this.request<ImportExclusion[]>('/importlistexclusion');
+  }
+
+  async deleteImportExclusion(id: number): Promise<void> {
+    await this.request<void>(`/importlistexclusion/${id}`, { method: 'DELETE' });
   }
 }
 

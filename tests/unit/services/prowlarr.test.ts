@@ -323,3 +323,36 @@ describe('prowlarr_get_apps', () => {
     expect(names).toContain('Sonarr');
   });
 });
+
+// ─── prowlarr_create_tag ──────────────────────────────────────────────────────
+
+describe('prowlarr_create_tag', () => {
+  it('posts new tag and returns success with id and label', async () => {
+    mswServer.use(http.post(`${API}/tag`, () => HttpResponse.json({ id: 10, label: 'my-tag' }, { status: 201 })));
+    const result = await prowlarrModule.handlers['prowlarr_create_tag']({ label: 'my-tag' }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.id).toBe(10);
+    expect(data.message).toContain('my-tag');
+  });
+
+  it('throws when prowlarr is not configured', async () => {
+    await expect(prowlarrModule.handlers['prowlarr_create_tag']({ label: 'x' }, {})).rejects.toThrow('Prowlarr is not configured');
+  });
+});
+
+// ─── prowlarr_delete_tag ──────────────────────────────────────────────────────
+
+describe('prowlarr_delete_tag', () => {
+  it('deletes tag and returns success', async () => {
+    mswServer.use(http.delete(`${API}/tag/10`, () => new HttpResponse(null, { status: 204 })));
+    const result = await prowlarrModule.handlers['prowlarr_delete_tag']({ tagId: 10 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.message).toContain('10');
+  });
+
+  it('throws when prowlarr is not configured', async () => {
+    await expect(prowlarrModule.handlers['prowlarr_delete_tag']({ tagId: 1 }, {})).rejects.toThrow('Prowlarr is not configured');
+  });
+});

@@ -68,6 +68,28 @@ export const prowlarrModule: ToolModule = {
       inputSchema: { type: 'object' as const, properties: {}, required: [] },
     },
     {
+      name: 'prowlarr_create_tag',
+      description: 'Create a new tag in Prowlarr.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          label: { type: 'string', description: 'Tag label' },
+        },
+        required: ['label'],
+      },
+    },
+    {
+      name: 'prowlarr_delete_tag',
+      description: 'Delete a tag from Prowlarr.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          tagId: { type: 'number', description: 'Tag ID (from prowlarr_get_tags)' },
+        },
+        required: ['tagId'],
+      },
+    },
+    {
       name: 'prowlarr_get_download_clients',
       description: 'Get all download clients configured in Prowlarr.',
       inputSchema: { type: 'object' as const, properties: {}, required: [] },
@@ -208,6 +230,20 @@ export const prowlarrModule: ToolModule = {
       if (!clients.prowlarr) throw new Error('Prowlarr is not configured');
       const tags = await clients.prowlarr.getTags();
       return ok({ count: tags.length, tags });
+    },
+
+    prowlarr_create_tag: async (args, clients) => {
+      if (!clients.prowlarr) throw new Error('Prowlarr is not configured');
+      const label = args.label as string;
+      const tag = await clients.prowlarr.createTag(label);
+      return ok({ success: true, message: `Created tag "${tag.label}"`, id: tag.id });
+    },
+
+    prowlarr_delete_tag: async (args, clients) => {
+      if (!clients.prowlarr) throw new Error('Prowlarr is not configured');
+      const tagId = args.tagId as number;
+      await clients.prowlarr.deleteTag(tagId);
+      return ok({ success: true, message: `Deleted tag ${tagId}` });
     },
 
     prowlarr_get_download_clients: async (_args, clients) => {

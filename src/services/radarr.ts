@@ -73,13 +73,13 @@ export const radarrModule: ToolModule = {
     },
     {
       name: 'radarr_refresh_movie',
-      description: 'Trigger a metadata refresh for a specific movie in Radarr.',
+      description: 'Trigger a metadata refresh for a specific movie in Radarr. Omit movieId to refresh metadata for all movies.',
       inputSchema: {
         type: 'object' as const,
         properties: {
-          movieId: { type: 'number', description: 'Movie ID (from radarr_get_movies)' },
+          movieId: { type: 'number', description: 'Movie ID (from radarr_get_movies). Omit to refresh all movies.' },
         },
-        required: ['movieId'],
+        required: [],
       },
     },
     {
@@ -506,6 +506,96 @@ export const radarrModule: ToolModule = {
         required: ['guid', 'indexerId'],
       },
     },
+    {
+      name: 'radarr_get_command_status',
+      description: 'Poll the status of an async command previously triggered (e.g. RescanMovie, RefreshMovie, MissingMoviesSearch). Pass the commandId returned by the trigger tool.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          commandId: { type: 'number', description: 'Command ID returned by a trigger tool' },
+        },
+        required: ['commandId'],
+      },
+    },
+    {
+      name: 'radarr_trigger_rescan_movies',
+      description: 'Rescan disk for all movies to link existing files Radarr does not know about.',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
+    {
+      name: 'radarr_trigger_missing_search',
+      description: 'Trigger a search for all missing monitored movies.',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
+    {
+      name: 'radarr_trigger_rename_movies',
+      description: 'Rename movie files on disk to match current Radarr naming settings. Pass specific movieIds or omit to rename all.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          movieIds: { type: 'array', items: { type: 'number' }, description: 'Movie IDs to rename. Omit for all movies.' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'radarr_trigger_downloaded_scan',
+      description: 'Force a scan of the completed downloads folder to import any files that were not auto-imported.',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
+    {
+      name: 'radarr_bulk_update_movies',
+      description: 'Bulk update multiple Radarr movies at once — change monitored status, quality profile, or tags in a single API call. Use this instead of calling radarr_update_movie in a loop.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          movieIds: { type: 'array', items: { type: 'number' }, description: 'List of movie IDs to update' },
+          monitored: { type: 'boolean', description: 'Set monitored status for all specified movies' },
+          qualityProfileId: { type: 'number', description: 'Change quality profile for all specified movies' },
+          tags: { type: 'array', items: { type: 'number' }, description: 'Tag IDs to apply' },
+          applyTags: { type: 'string', enum: ['add', 'remove', 'replace'], description: 'How to apply tags (default: add)' },
+        },
+        required: ['movieIds'],
+      },
+    },
+    {
+      name: 'radarr_bulk_delete_movies',
+      description: 'Bulk delete multiple movies from Radarr. WARNING: Setting deleteFiles to true is destructive and irreversible — files will be permanently removed from disk.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          movieIds: { type: 'array', items: { type: 'number' }, description: 'List of movie IDs to delete' },
+          deleteFiles: { type: 'boolean', description: 'Delete movie files from disk (default: false) — IRREVERSIBLE' },
+          addImportExclusion: { type: 'boolean', description: 'Prevent re-importing these movies (default: false)' },
+        },
+        required: ['movieIds'],
+      },
+    },
+    {
+      name: 'radarr_get_manual_import',
+      description: 'Scan a folder and preview how Radarr would match each file for manual import. Shows quality, matched movie, and any rejection reasons. Use radarr_process_manual_import to confirm.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          folder: { type: 'string', description: 'Absolute path to the folder to scan' },
+          filterExistingFiles: { type: 'boolean', description: 'Only show files not already in the Radarr library (default: true)' },
+          page: { type: 'number', description: 'Page number (default: 1)' },
+          pageSize: { type: 'number', description: 'Results per page (default: 50)' },
+        },
+        required: ['folder'],
+      },
+    },
+    {
+      name: 'radarr_process_manual_import',
+      description: 'Confirm and import files identified by radarr_get_manual_import. Pass the items array from the preview response (optionally filtered to only importable items with no rejections).',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          items: { type: 'array', description: 'Items from radarr_get_manual_import to import (exclude items with rejections)' },
+        },
+        required: ['items'],
+      },
+    },
   ],
 
   handlers: {
@@ -569,6 +659,9 @@ export const radarrModule: ToolModule = {
         items: items.map(q => ({
           title: q.title,
           status: q.status,
+          trackedDownloadStatus: q.trackedDownloadStatus,
+          trackedDownloadState: q.trackedDownloadState,
+          statusMessages: q.statusMessages,
           progress: q.size > 0 ? `${((1 - q.sizeleft / q.size) * 100).toFixed(1)}%` : '0%',
           timeLeft: q.timeleft,
           downloadClient: q.downloadClient,
@@ -606,17 +699,21 @@ export const radarrModule: ToolModule = {
 
     radarr_refresh_movie: async (args, clients) => {
       if (!clients.radarr) throw new Error('Radarr is not configured');
-      const movieId = args.movieId as number;
-      const [movie, result] = await Promise.all([
-        clients.radarr.getMovieById(movieId),
-        clients.radarr.refreshMovie(movieId),
-      ]);
-      return ok({
-        success: true,
-        message: 'Metadata refresh triggered',
-        movie: { id: movie.id, title: movie.title, year: movie.year },
-        commandId: result.id,
-      });
+      const movieId = args.movieId as number | undefined;
+      if (movieId !== undefined) {
+        const [movie, result] = await Promise.all([
+          clients.radarr.getMovieById(movieId),
+          clients.radarr.refreshMovie(movieId),
+        ]);
+        return ok({
+          success: true,
+          message: 'Metadata refresh triggered',
+          movie: { id: movie.id, title: movie.title, year: movie.year },
+          commandId: result.id,
+        });
+      }
+      const result = await clients.radarr.refreshMovie();
+      return ok({ success: true, message: 'Metadata refresh triggered for all movies', commandId: result.id });
     },
 
     radarr_add_movie: async (args, clients) => {
@@ -1223,6 +1320,90 @@ export const radarrModule: ToolModule = {
         indexer: result.indexer,
         size: formatBytes(result.size),
       });
+    },
+
+    radarr_get_command_status: async (args, clients) => {
+      if (!clients.radarr) throw new Error('Radarr is not configured');
+      const commandId = args.commandId as number;
+      const result = await clients.radarr.getCommandStatus(commandId);
+      return ok({ id: result.id, name: result.name, status: result.status, message: result.message, started: result.started, ended: result.ended });
+    },
+
+    radarr_trigger_rescan_movies: async (_args, clients) => {
+      if (!clients.radarr) throw new Error('Radarr is not configured');
+      const result = await clients.radarr.rescanAllMovies();
+      return ok({ success: true, message: 'Disk rescan triggered for all movies', commandId: result.id });
+    },
+
+    radarr_trigger_missing_search: async (_args, clients) => {
+      if (!clients.radarr) throw new Error('Radarr is not configured');
+      const result = await clients.radarr.runCommand('MissingMoviesSearch');
+      return ok({ success: true, message: 'Search triggered for all missing monitored movies', commandId: result.id });
+    },
+
+    radarr_trigger_rename_movies: async (args, clients) => {
+      if (!clients.radarr) throw new Error('Radarr is not configured');
+      const movieIds = (args.movieIds as number[] | undefined) ?? [];
+      const result = await clients.radarr.runCommand('RenameMovie', { movieIds });
+      return ok({ success: true, message: movieIds.length > 0 ? `Rename triggered for ${movieIds.length} movies` : 'Rename triggered for all movies', commandId: result.id });
+    },
+
+    radarr_trigger_downloaded_scan: async (_args, clients) => {
+      if (!clients.radarr) throw new Error('Radarr is not configured');
+      const result = await clients.radarr.runCommand('DownloadedMoviesScan');
+      return ok({ success: true, message: 'Triggered scan of completed downloads folder', commandId: result.id });
+    },
+
+    radarr_bulk_update_movies: async (args, clients) => {
+      if (!clients.radarr) throw new Error('Radarr is not configured');
+      const { movieIds, monitored, qualityProfileId, tags, applyTags } = args as {
+        movieIds: number[];
+        monitored?: boolean;
+        qualityProfileId?: number;
+        tags?: number[];
+        applyTags?: 'add' | 'remove' | 'replace';
+      };
+      await clients.radarr.bulkUpdateMovies(movieIds, { monitored, qualityProfileId, tags, applyTags });
+      return ok({ success: true, message: `Updated ${movieIds.length} movies`, movieIds });
+    },
+
+    radarr_bulk_delete_movies: async (args, clients) => {
+      if (!clients.radarr) throw new Error('Radarr is not configured');
+      const { movieIds, deleteFiles = false, addImportExclusion = false } = args as {
+        movieIds: number[];
+        deleteFiles?: boolean;
+        addImportExclusion?: boolean;
+      };
+      await clients.radarr.bulkDeleteMovies(movieIds, deleteFiles, addImportExclusion);
+      return ok({ success: true, message: `Deleted ${movieIds.length} movies`, deletedFiles: deleteFiles, addedToExclusions: addImportExclusion });
+    },
+
+    radarr_get_manual_import: async (args, clients) => {
+      if (!clients.radarr) throw new Error('Radarr is not configured');
+      const folder = args.folder as string;
+      const filterExistingFiles = (args.filterExistingFiles as boolean | undefined) ?? true;
+      const page = (args.page as number | undefined) ?? 1;
+      const pageSize = (args.pageSize as number | undefined) ?? 50;
+      const items = await clients.radarr.getManualImport(folder, filterExistingFiles, page, pageSize);
+      return ok({
+        count: items.length,
+        items: items.map(i => ({
+          id: i.id,
+          path: i.path,
+          relativePath: i.relativePath,
+          movie: i.movie,
+          quality: i.quality?.quality?.name,
+          size: formatBytes(i.size),
+          rejections: i.rejections,
+        })),
+      });
+    },
+
+    radarr_process_manual_import: async (args, clients) => {
+      if (!clients.radarr) throw new Error('Radarr is not configured');
+      const items = args.items as import('../clients/arr-client.js').ManualImportItem[];
+      await clients.radarr.processManualImport(items);
+      return ok({ success: true, message: `Submitted ${items.length} items for import` });
     },
   },
 };

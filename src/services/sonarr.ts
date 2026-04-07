@@ -101,13 +101,13 @@ export const sonarrModule: ToolModule = {
     },
     {
       name: 'sonarr_refresh_series',
-      description: 'Trigger a metadata refresh for a specific series in Sonarr.',
+      description: 'Trigger a metadata refresh for a specific series in Sonarr. Omit seriesId to refresh metadata for all series.',
       inputSchema: {
         type: 'object' as const,
         properties: {
-          seriesId: { type: 'number', description: 'Series ID (from sonarr_get_series)' },
+          seriesId: { type: 'number', description: 'Series ID (from sonarr_get_series). Omit to refresh all series.' },
         },
-        required: ['seriesId'],
+        required: [],
       },
     },
     {
@@ -565,6 +565,91 @@ export const sonarrModule: ToolModule = {
         required: ['guid', 'indexerId'],
       },
     },
+    {
+      name: 'sonarr_get_command_status',
+      description: 'Poll the status of an async command previously triggered (e.g. RescanSeries, RefreshSeries). Pass the commandId returned by the trigger tool.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          commandId: { type: 'number', description: 'Command ID returned by a trigger tool' },
+        },
+        required: ['commandId'],
+      },
+    },
+    {
+      name: 'sonarr_trigger_rescan_series',
+      description: 'Rescan disk for all series to link existing files Sonarr does not know about.',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
+    {
+      name: 'sonarr_trigger_rename_series',
+      description: 'Rename episode files on disk to match current Sonarr naming settings. Pass specific seriesIds or omit to rename all.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          seriesIds: { type: 'array', items: { type: 'number' }, description: 'Series IDs to rename. Omit for all series.' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'sonarr_trigger_downloaded_scan',
+      description: 'Force a scan of the completed downloads folder to import any files that were not auto-imported.',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
+    {
+      name: 'sonarr_bulk_update_series',
+      description: 'Bulk update multiple Sonarr series at once — change monitored status, quality profile, or tags in a single API call. Use this instead of calling sonarr_update_series in a loop.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          seriesIds: { type: 'array', items: { type: 'number' }, description: 'List of series IDs to update' },
+          monitored: { type: 'boolean', description: 'Set monitored status for all specified series' },
+          qualityProfileId: { type: 'number', description: 'Change quality profile for all specified series' },
+          tags: { type: 'array', items: { type: 'number' }, description: 'Tag IDs to apply' },
+          applyTags: { type: 'string', enum: ['add', 'remove', 'replace'], description: 'How to apply tags (default: add)' },
+        },
+        required: ['seriesIds'],
+      },
+    },
+    {
+      name: 'sonarr_bulk_delete_series',
+      description: 'Bulk delete multiple series from Sonarr. WARNING: Setting deleteFiles to true is destructive and irreversible — files will be permanently removed from disk.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          seriesIds: { type: 'array', items: { type: 'number' }, description: 'List of series IDs to delete' },
+          deleteFiles: { type: 'boolean', description: 'Delete episode files from disk (default: false) — IRREVERSIBLE' },
+          addImportListExclusion: { type: 'boolean', description: 'Prevent re-importing these series (default: false)' },
+        },
+        required: ['seriesIds'],
+      },
+    },
+    {
+      name: 'sonarr_get_manual_import',
+      description: 'Scan a folder and preview how Sonarr would match each file for manual import. Shows quality, matched series/episode, and any rejection reasons. Use sonarr_process_manual_import to confirm.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          folder: { type: 'string', description: 'Absolute path to the folder to scan' },
+          filterExistingFiles: { type: 'boolean', description: 'Only show files not already in the Sonarr library (default: true)' },
+          page: { type: 'number', description: 'Page number (default: 1)' },
+          pageSize: { type: 'number', description: 'Results per page (default: 50)' },
+        },
+        required: ['folder'],
+      },
+    },
+    {
+      name: 'sonarr_process_manual_import',
+      description: 'Confirm and import files identified by sonarr_get_manual_import. Pass the items array from the preview response (optionally filtered to only importable items with no rejections).',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          items: { type: 'array', description: 'Items from sonarr_get_manual_import to import (exclude items with rejections)' },
+        },
+        required: ['items'],
+      },
+    },
   ],
 
   handlers: {
@@ -628,6 +713,9 @@ export const sonarrModule: ToolModule = {
         items: items.map(q => ({
           title: q.title,
           status: q.status,
+          trackedDownloadStatus: q.trackedDownloadStatus,
+          trackedDownloadState: q.trackedDownloadState,
+          statusMessages: q.statusMessages,
           progress: q.size > 0 ? `${((1 - q.sizeleft / q.size) * 100).toFixed(1)}%` : '0%',
           timeLeft: q.timeleft,
           downloadClient: q.downloadClient,
@@ -695,17 +783,21 @@ export const sonarrModule: ToolModule = {
 
     sonarr_refresh_series: async (args, clients) => {
       if (!clients.sonarr) throw new Error('Sonarr is not configured');
-      const seriesId = args.seriesId as number;
-      const [series, result] = await Promise.all([
-        clients.sonarr.getSeriesById(seriesId),
-        clients.sonarr.refreshSeries(seriesId),
-      ]);
-      return ok({
-        success: true,
-        message: 'Metadata refresh triggered',
-        series: { id: series.id, title: series.title, year: series.year },
-        commandId: result.id,
-      });
+      const seriesId = args.seriesId as number | undefined;
+      if (seriesId !== undefined) {
+        const [series, result] = await Promise.all([
+          clients.sonarr.getSeriesById(seriesId),
+          clients.sonarr.refreshSeries(seriesId),
+        ]);
+        return ok({
+          success: true,
+          message: 'Metadata refresh triggered',
+          series: { id: series.id, title: series.title, year: series.year },
+          commandId: result.id,
+        });
+      }
+      const result = await clients.sonarr.refreshSeries();
+      return ok({ success: true, message: 'Metadata refresh triggered for all series', commandId: result.id });
     },
 
     sonarr_add_series: async (args, clients) => {
@@ -1349,6 +1441,86 @@ export const sonarrModule: ToolModule = {
         indexer: result.indexer,
         size: formatBytes(result.size),
       });
+    },
+
+    sonarr_get_command_status: async (args, clients) => {
+      if (!clients.sonarr) throw new Error('Sonarr is not configured');
+      const commandId = args.commandId as number;
+      const result = await clients.sonarr.getCommandStatus(commandId);
+      return ok({ id: result.id, name: result.name, status: result.status, message: result.message, started: result.started, ended: result.ended });
+    },
+
+    sonarr_trigger_rescan_series: async (_args, clients) => {
+      if (!clients.sonarr) throw new Error('Sonarr is not configured');
+      const result = await clients.sonarr.rescanAllSeries();
+      return ok({ success: true, message: 'Rescan triggered for all series', commandId: result.id });
+    },
+
+    sonarr_trigger_rename_series: async (args, clients) => {
+      if (!clients.sonarr) throw new Error('Sonarr is not configured');
+      const seriesIds = (args.seriesIds as number[] | undefined) ?? [];
+      const result = await clients.sonarr.runCommand('RenameSeries', { seriesIds });
+      return ok({ success: true, message: seriesIds.length > 0 ? `Rename triggered for ${seriesIds.length} series` : 'Rename triggered for all series', commandId: result.id });
+    },
+
+    sonarr_trigger_downloaded_scan: async (_args, clients) => {
+      if (!clients.sonarr) throw new Error('Sonarr is not configured');
+      const result = await clients.sonarr.runCommand('DownloadedEpisodesScan');
+      return ok({ success: true, message: 'Triggered scan of completed downloads folder', commandId: result.id });
+    },
+
+    sonarr_bulk_update_series: async (args, clients) => {
+      if (!clients.sonarr) throw new Error('Sonarr is not configured');
+      const { seriesIds, monitored, qualityProfileId, tags, applyTags } = args as {
+        seriesIds: number[];
+        monitored?: boolean;
+        qualityProfileId?: number;
+        tags?: number[];
+        applyTags?: 'add' | 'remove' | 'replace';
+      };
+      await clients.sonarr.bulkUpdateSeries(seriesIds, { monitored, qualityProfileId, tags, applyTags });
+      return ok({ success: true, message: `Updated ${seriesIds.length} series`, seriesIds });
+    },
+
+    sonarr_bulk_delete_series: async (args, clients) => {
+      if (!clients.sonarr) throw new Error('Sonarr is not configured');
+      const { seriesIds, deleteFiles = false, addImportListExclusion = false } = args as {
+        seriesIds: number[];
+        deleteFiles?: boolean;
+        addImportListExclusion?: boolean;
+      };
+      await clients.sonarr.bulkDeleteSeries(seriesIds, deleteFiles, addImportListExclusion);
+      return ok({ success: true, message: `Deleted ${seriesIds.length} series`, deletedFiles: deleteFiles, addedToExclusions: addImportListExclusion });
+    },
+
+    sonarr_get_manual_import: async (args, clients) => {
+      if (!clients.sonarr) throw new Error('Sonarr is not configured');
+      const folder = args.folder as string;
+      const filterExistingFiles = (args.filterExistingFiles as boolean | undefined) ?? true;
+      const page = (args.page as number | undefined) ?? 1;
+      const pageSize = (args.pageSize as number | undefined) ?? 50;
+      const items = await clients.sonarr.getManualImport(folder, filterExistingFiles, page, pageSize);
+      return ok({
+        count: items.length,
+        items: items.map(i => ({
+          id: i.id,
+          path: i.path,
+          relativePath: i.relativePath,
+          series: i.series,
+          seasonNumber: i.seasonNumber,
+          episodes: i.episodes,
+          quality: i.quality?.quality?.name,
+          size: formatBytes(i.size),
+          rejections: i.rejections,
+        })),
+      });
+    },
+
+    sonarr_process_manual_import: async (args, clients) => {
+      if (!clients.sonarr) throw new Error('Sonarr is not configured');
+      const items = args.items as import('../clients/arr-client.js').ManualImportItem[];
+      await clients.sonarr.processManualImport(items);
+      return ok({ success: true, message: `Submitted ${items.length} items for import` });
     },
   },
 };
