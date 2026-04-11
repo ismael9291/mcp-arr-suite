@@ -532,7 +532,7 @@ describe('lidarr_get_queue diagnostic fields', () => {
     const data = JSON.parse(result.content[0].text);
     expect(data.items[0].trackedDownloadStatus).toBe('warning');
     expect(data.items[0].trackedDownloadState).toBe('importBlocked');
-    expect(data.items[0].statusMessages[0].title).toBe('Already Imported');
+    expect(data.items[0].statusMessages[0]).toBe('Track already in library');
   });
 });
 
@@ -844,5 +844,122 @@ describe('lidarr_update_quality_definition', () => {
     const result = await lidarrModule.handlers['lidarr_update_quality_definition']({ id: 1, definition: qualityDefinitionFixtures[0] }, clients);
     const data = JSON.parse(result.content[0].text);
     expect(data.success).toBe(true);
+  });
+});
+
+// ─── lidarr_get_quality_profile ───────────────────────────────────────────────
+
+describe('lidarr_get_quality_profile', () => {
+  it('returns profile details by ID', async () => {
+    mswServer.use(http.get(`${API}/qualityprofile/4`, () => HttpResponse.json(qualityProfileFixtures[0])));
+    const result = await lidarrModule.handlers['lidarr_get_quality_profile']({ profileId: 4 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.id).toBe(4);
+    expect(data.name).toBe('Ultra-HD');
+    expect(data.upgradeAllowed).toBe(true);
+    expect(Array.isArray(data.qualities)).toBe(true);
+    expect(Array.isArray(data.customFormats)).toBe(true);
+  });
+
+  it('only lists allowed qualities', async () => {
+    mswServer.use(http.get(`${API}/qualityprofile/4`, () => HttpResponse.json(qualityProfileFixtures[0])));
+    const result = await lidarrModule.handlers['lidarr_get_quality_profile']({ profileId: 4 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    // fixture has Remux-2160p (allowed) and HDTV-720p (not allowed)
+    expect(data.qualities).toContain('Remux-2160p');
+    expect(data.qualities).not.toContain('HDTV-720p');
+  });
+
+  it('throws when lidarr is not configured', async () => {
+    await expect(lidarrModule.handlers['lidarr_get_quality_profile']({ profileId: 4 }, {})).rejects.toThrow('Lidarr is not configured');
+  });
+});
+
+// ─── lidarr_update_quality_profile ───────────────────────────────────────────
+
+describe('lidarr_update_quality_profile', () => {
+  it('GETs existing profile then PUTs modified version', async () => {
+    let putBody: Record<string, unknown> = {};
+    mswServer.use(
+      http.get(`${API}/qualityprofile/4`, () => HttpResponse.json(qualityProfileFixtures[0])),
+      http.put(`${API}/qualityprofile/4`, async ({ request }) => {
+        putBody = await request.json() as Record<string, unknown>;
+        return HttpResponse.json({ ...qualityProfileFixtures[0], minFormatScore: 50 });
+      }),
+    );
+    const result = await lidarrModule.handlers['lidarr_update_quality_profile']({ profileId: 4, minFormatScore: 50 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.name).toBe('Ultra-HD');
+    expect(putBody.minFormatScore).toBe(50);
+  });
+
+  it('updates custom format scores selectively', async () => {
+    let putBody: { formatItems?: Array<{ format: number; score: number }> } = {};
+    mswServer.use(
+      http.get(`${API}/qualityprofile/4`, () => HttpResponse.json(qualityProfileFixtures[0])),
+      http.put(`${API}/qualityprofile/4`, async ({ request }) => {
+        putBody = await request.json() as typeof putBody;
+        return HttpResponse.json(qualityProfileFixtures[0]);
+      }),
+    );
+    await lidarrModule.handlers['lidarr_update_quality_profile']({
+      profileId: 4,
+      formatScores: [{ formatId: 1, score: 999 }],
+    }, clients);
+    const hdr10Item = putBody.formatItems?.find(f => f.format === 1);
+    expect(hdr10Item?.score).toBe(999);
+  });
+
+  it('throws when lidarr is not configured', async () => {
+    await expect(lidarrModule.handlers['lidarr_update_quality_profile']({ profileId: 4 }, {})).rejects.toThrow('Lidarr is not configured');
+  });
+});
+
+// ─── lidarr_get_album_by_id ───────────────────────────────────────────────────
+
+describe('lidarr_get_album_by_id', () => {
+  it('returns album details with formatted size and track ratio', async () => {
+    mswServer.use(http.get(`${API}/album/101`, () => HttpResponse.json(albumFixtures[0])));
+    const result = await lidarrModule.handlers['lidarr_get_album_by_id']({ albumId: 101 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.id).toBe(101);
+    expect(data.title).toBe('The Dark Side of the Moon');
+    expect(data.albumType).toBe('Album');
+    expect(data.monitored).toBe(true);
+    expect(data.sizeOnDisk).toMatch(/\d+(\.\d+)? (B|KB|MB|GB|TB)/);
+    expect(data.tracks).toBe('10/10');
+  });
+
+  it('throws when lidarr is not configured', async () => {
+    await expect(lidarrModule.handlers['lidarr_get_album_by_id']({ albumId: 101 }, {})).rejects.toThrow('Lidarr is not configured');
+  });
+});
+
+// ─── lidarr_get_track_files — albumId filter ─────────────────────────────────
+
+describe('lidarr_get_track_files albumId filter', () => {
+  beforeEach(() => {
+    mswServer.use(http.get(`${API}/trackfile`, () => HttpResponse.json(trackFileFixtures)));
+  });
+
+  it('returns all files when no albumId provided', async () => {
+    const result = await lidarrModule.handlers['lidarr_get_track_files']({ artistId: 1 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.count).toBe(trackFileFixtures.length);
+  });
+
+  it('filters to a specific album when albumId is provided', async () => {
+    const result = await lidarrModule.handlers['lidarr_get_track_files']({ artistId: 1, albumId: 101 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.count).toBe(trackFileFixtures.filter(f => f.albumId === 101).length);
+    expect(data.count).toBeGreaterThan(0);
+  });
+
+  it('returns empty list when albumId has no matching files', async () => {
+    const result = await lidarrModule.handlers['lidarr_get_track_files']({ artistId: 1, albumId: 999 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.count).toBe(0);
+    expect(data.files).toHaveLength(0);
   });
 });

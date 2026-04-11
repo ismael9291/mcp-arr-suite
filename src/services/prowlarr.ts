@@ -99,6 +99,45 @@ export const prowlarrModule: ToolModule = {
       description: 'Get all applications connected to Prowlarr (e.g. Sonarr, Radarr) and their sync status.',
       inputSchema: { type: 'object' as const, properties: {}, required: [] },
     },
+    {
+      name: 'prowlarr_get_logs',
+      description: 'Fetch recent application log entries from Prowlarr.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          pageSize: { type: 'number', description: 'Number of log entries to return (default: 20, max: 100)' },
+          page: { type: 'number', description: 'Page number (default: 1)' },
+          level: { type: 'string', enum: ['trace', 'debug', 'info', 'warn', 'error', 'fatal'], description: 'Filter by log level (optional)' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'prowlarr_get_system_tasks',
+      description: 'List all scheduled system tasks in Prowlarr with last/next execution times.',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
+    {
+      name: 'prowlarr_get_command_status',
+      description: 'Check the status of an async command triggered in Prowlarr (e.g. from prowlarr_trigger_backup).',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          commandId: { type: 'number', description: 'Command ID returned by the triggering tool' },
+        },
+        required: ['commandId'],
+      },
+    },
+    {
+      name: 'prowlarr_trigger_backup',
+      description: 'Create an on-demand backup of Prowlarr configuration and database.',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
+    {
+      name: 'prowlarr_get_notifications',
+      description: 'List all configured notification providers in Prowlarr.',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
   ],
 
   handlers: {
@@ -278,5 +317,78 @@ export const prowlarrModule: ToolModule = {
         })),
       });
     },
+
+    prowlarr_get_logs: async (args, clients) => {
+      if (!clients.prowlarr) throw new Error('Prowlarr is not configured');
+      const page = (args.page as number | undefined) ?? 1;
+      const pageSize = Math.min((args.pageSize as number | undefined) ?? 20, 100);
+      const level = args.level as string | undefined;
+      const result = await clients.prowlarr.getLogs(page, pageSize, level);
+      return ok({
+        page: result.page,
+        pageSize: result.pageSize,
+        totalRecords: result.totalRecords,
+        records: result.records.map(r => ({
+          time: r.time,
+          level: r.level,
+          logger: r.logger,
+          message: r.message,
+          ...(r.exception ? { exception: r.exception } : {}),
+          ...(r.exceptionType ? { exceptionType: r.exceptionType } : {}),
+        })),
+      });
+    },
+
+    prowlarr_get_system_tasks: async (_args, clients) => {
+      if (!clients.prowlarr) throw new Error('Prowlarr is not configured');
+      const tasks = await clients.prowlarr.getSystemTasks();
+      return ok({
+        count: tasks.length,
+        tasks: tasks.map(t => ({
+          id: t.id,
+          name: t.name,
+          taskName: t.taskName,
+          lastExecution: t.lastExecution,
+          nextExecution: t.nextExecution,
+          isRunning: t.isRunning,
+          lastDuration: t.lastDuration,
+        })),
+      });
+    },
+
+    prowlarr_get_command_status: async (args, clients) => {
+      if (!clients.prowlarr) throw new Error('Prowlarr is not configured');
+      const commandId = args.commandId as number;
+      const result = await clients.prowlarr.getCommandStatus(commandId);
+      return ok(result);
+    },
+
+    prowlarr_trigger_backup: async (_args, clients) => {
+      if (!clients.prowlarr) throw new Error('Prowlarr is not configured');
+      const result = await clients.prowlarr.triggerBackup();
+      return ok({ success: true, message: 'Backup triggered', commandId: result.id });
+    },
+
+    prowlarr_get_notifications: async (_args, clients) => {
+      if (!clients.prowlarr) throw new Error('Prowlarr is not configured');
+      const notifications = await clients.prowlarr.getNotifications();
+      return ok({
+        count: notifications.length,
+        notifications: notifications.map(n => ({
+          id: n.id,
+          name: n.name,
+          implementation: n.implementationName,
+          tags: n.tags,
+          triggers: {
+            onGrab: n.onGrab,
+            onDownload: n.onDownload,
+            onUpgrade: n.onUpgrade,
+            onHealthIssue: n.onHealthIssue,
+            onApplicationUpdate: n.onApplicationUpdate,
+          },
+        })),
+      });
+    },
+
   },
 };

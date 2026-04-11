@@ -933,7 +933,7 @@ describe('radarr_get_queue diagnostic fields', () => {
   it('includes statusMessages', async () => {
     const result = await radarrModule.handlers['radarr_get_queue']({}, clients);
     const data = JSON.parse(result.content[0].text);
-    expect(data.items[0].statusMessages[0].title).toBe('Already Imported');
+    expect(data.items[0].statusMessages[0]).toBe('File already exists in library');
   });
 });
 

@@ -620,6 +620,35 @@ if (clients.lidarr) {
       expect(Array.isArray(history.records)).toBe(true);
     });
 
+    it('new gap-closure tools respond', async () => {
+      // lidarr_get_quality_profile / lidarr_update_quality_profile
+      const profiles = await callTool<{ profiles: Array<{ id: number; name: string }> }>('lidarr_get_quality_profiles');
+      const profileId = profiles.profiles?.[0]?.id;
+      if (profileId !== undefined) {
+        const profile = await callTool<{ id: number; name: string; qualities: string[] }>('lidarr_get_quality_profile', { profileId });
+        expect(profile.id).toBe(profileId);
+        expect(Array.isArray(profile.qualities)).toBe(true);
+      }
+
+      // lidarr_get_album_by_id
+      const artists = await callTool<PaginatedItems>('lidarr_get_artists', { limit: 3 });
+      const artistId = asOptionalNumber(process.env.LIDARR_TEST_ARTIST_ID) ?? artists.items?.[0]?.id as number | undefined;
+      if (artistId) {
+        const albums = await callTool<{ count: number; albums: Array<{ id: number }> }>('lidarr_get_albums', { artistId });
+        const albumId = albums.albums?.[0]?.id;
+        if (albumId !== undefined) {
+          const album = await callTool<{ id: number; title: string; tracks: string }>('lidarr_get_album_by_id', { albumId });
+          expect(album.id).toBe(albumId);
+          expect(typeof album.title).toBe('string');
+          expect(typeof album.tracks).toBe('string');
+
+          // lidarr_get_track_files with albumId filter
+          const filtered = await callTool<{ count: number; files: Array<Record<string, unknown>> }>('lidarr_get_track_files', { artistId, albumId });
+          expect(typeof filtered.count).toBe('number');
+        }
+      }
+    });
+
     if (enableCommandSmoke) {
       it('lidarr trigger commands respond with commandId', async () => {
         const backup = await callTool<{ success: boolean; commandId: number }>('lidarr_trigger_backup');
@@ -722,7 +751,26 @@ if (clients.prowlarr) {
       expect(typeof data.hasMore).toBe('boolean');
     });
 
+    it('new gap-closure tools respond', async () => {
+      await callTool('prowlarr_get_logs', { pageSize: 5 });
+      await callTool('prowlarr_get_system_tasks');
+      await callTool('prowlarr_get_notifications');
+    });
+
     if (enableCommandSmoke) {
+      it('prowlarr_trigger_backup responds with commandId', async () => {
+        const result = await callTool<{ success: boolean; commandId: number }>('prowlarr_trigger_backup');
+        expect(result.success).toBe(true);
+        expect(typeof result.commandId).toBe('number');
+      });
+
+      it('prowlarr_get_command_status polls a triggered command', async () => {
+        const triggered = await callTool<{ commandId: number }>('prowlarr_trigger_backup');
+        const status = await callTool<{ id: number; status: string }>('prowlarr_get_command_status', { commandId: triggered.commandId });
+        expect(typeof status.status).toBe('string');
+        expect(['queued', 'started', 'completed', 'failed', 'aborted'].includes(status.status)).toBe(true);
+      });
+
       it('indexer test command responds', async () => {
         await callTool('prowlarr_test_indexers');
       });

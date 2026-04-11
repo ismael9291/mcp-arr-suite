@@ -228,6 +228,32 @@ describe('sonarr_get_episode_files', () => {
     expect(data.files[0].size).toMatch(/\d+(\.\d+)? (B|KB|MB|GB|TB)/);
     expect(data.files[0].quality).toBe('Bluray-1080p');
   });
+
+  it('filters by seasonNumber when provided', async () => {
+    // episodeFileFixture has seasonNumber: 1; add a season 2 file to the mock
+    const season2File = { ...episodeFileFixture, id: 9999, seasonNumber: 2 };
+    mswServer.use(http.get(`${API}/episodefile`, () => HttpResponse.json([episodeFileFixture, season2File])));
+    const result = await sonarrModule.handlers['sonarr_get_episode_files']({ seriesId: 1, seasonNumber: 1 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.count).toBe(1);
+    expect(data.files[0].seasonNumber).toBe(1);
+  });
+
+  it('returns all files when no seasonNumber provided', async () => {
+    const season2File = { ...episodeFileFixture, id: 9999, seasonNumber: 2 };
+    mswServer.use(http.get(`${API}/episodefile`, () => HttpResponse.json([episodeFileFixture, season2File])));
+    const result = await sonarrModule.handlers['sonarr_get_episode_files']({ seriesId: 1 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.count).toBe(2);
+  });
+
+  it('returns empty result when seasonNumber has no matching files', async () => {
+    mswServer.use(http.get(`${API}/episodefile`, () => HttpResponse.json([episodeFileFixture])));
+    const result = await sonarrModule.handlers['sonarr_get_episode_files']({ seriesId: 1, seasonNumber: 99 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.count).toBe(0);
+    expect(data.files).toHaveLength(0);
+  });
 });
 
 // ─── sonarr_get_blocklist ─────────────────────────────────────────────────────
@@ -917,7 +943,7 @@ describe('sonarr_get_queue diagnostic fields', () => {
     const result = await sonarrModule.handlers['sonarr_get_queue']({}, clients);
     const data = JSON.parse(result.content[0].text);
     expect(data.items[0].statusMessages).toHaveLength(1);
-    expect(data.items[0].statusMessages[0].title).toBe('Already Imported');
+    expect(data.items[0].statusMessages[0]).toBe('File already exists in library');
   });
 });
 

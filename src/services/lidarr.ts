@@ -5,7 +5,7 @@
 import type { ToolModule } from '../types.js';
 import { ok } from '../types.js';
 import { formatBytes, truncate, paginate, clampLimit, clampOffset, today, daysFromNow } from '../shared/formatting.js';
-import type { Artist, CustomFormat, ImportList, QualityDefinition } from '../clients/arr-client.js';
+import type { Artist, CustomFormat, ImportList, QualityDefinition, QualityProfile } from '../clients/arr-client.js';
 
 export const lidarrModule: ToolModule = {
   tools: [
@@ -222,6 +222,7 @@ export const lidarrModule: ToolModule = {
         type: 'object' as const,
         properties: {
           artistId: { type: 'number', description: 'Artist ID (from lidarr_get_artists)' },
+          albumId: { type: 'number', description: 'Optional — filter to a specific album' },
         },
         required: ['artistId'],
       },
@@ -466,6 +467,55 @@ export const lidarrModule: ToolModule = {
         required: ['id', 'definition'],
       },
     },
+    {
+      name: 'lidarr_get_quality_profile',
+      description: 'Get a single Lidarr quality profile by ID with full details. Required before calling lidarr_update_quality_profile.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          profileId: { type: 'number', description: 'Quality profile ID (from lidarr_get_quality_profiles)' },
+        },
+        required: ['profileId'],
+      },
+    },
+    {
+      name: 'lidarr_update_quality_profile',
+      description: 'Update a Lidarr quality profile — change upgradeAllowed, minFormatScore, cutoffFormatScore, cutoff, or custom format scores. Fetches the existing profile first to avoid overwriting unrelated fields.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          profileId: { type: 'number', description: 'Quality profile ID (from lidarr_get_quality_profiles)' },
+          upgradeAllowed: { type: 'boolean', description: 'Allow quality upgrades' },
+          cutoff: { type: 'number', description: 'Cutoff quality ID' },
+          minFormatScore: { type: 'number', description: 'Minimum custom format score required to import' },
+          cutoffFormatScore: { type: 'number', description: 'Custom format score needed to stop upgrading' },
+          formatScores: {
+            type: 'array',
+            description: 'Custom format score overrides',
+            items: {
+              type: 'object',
+              properties: {
+                formatId: { type: 'number' },
+                score: { type: 'number' },
+              },
+              required: ['formatId', 'score'],
+            },
+          },
+        },
+        required: ['profileId'],
+      },
+    },
+    {
+      name: 'lidarr_get_album_by_id',
+      description: 'Get a single album by ID from Lidarr with full details.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          albumId: { type: 'number', description: 'Album ID (from lidarr_get_albums)' },
+        },
+        required: ['albumId'],
+      },
+    },
   ],
 
   handlers: {
@@ -530,7 +580,7 @@ export const lidarrModule: ToolModule = {
           status: q.status,
           trackedDownloadStatus: q.trackedDownloadStatus,
           trackedDownloadState: q.trackedDownloadState,
-          statusMessages: q.statusMessages,
+          ...(q.statusMessages?.length ? { statusMessages: q.statusMessages.flatMap(m => m.messages) } : {}),
           progress: q.size > 0 ? `${((1 - q.sizeleft / q.size) * 100).toFixed(1)}%` : '0%',
           timeLeft: q.timeleft,
           downloadClient: q.downloadClient,
@@ -723,7 +773,7 @@ export const lidarrModule: ToolModule = {
     lidarr_get_wanted_missing: async (args, clients) => {
       if (!clients.lidarr) throw new Error('Lidarr is not configured');
       const page = (args.page as number | undefined) ?? 1;
-      const pageSize = (args.pageSize as number | undefined) ?? 20;
+      const pageSize = clampLimit((args.pageSize as number | undefined) ?? 20);
       const result = await clients.lidarr.getWantedMissing(page, pageSize);
       return ok({
         totalRecords: result.totalRecords,
@@ -744,7 +794,7 @@ export const lidarrModule: ToolModule = {
     lidarr_get_wanted_cutoff: async (args, clients) => {
       if (!clients.lidarr) throw new Error('Lidarr is not configured');
       const page = (args.page as number | undefined) ?? 1;
-      const pageSize = (args.pageSize as number | undefined) ?? 20;
+      const pageSize = clampLimit((args.pageSize as number | undefined) ?? 20);
       const result = await clients.lidarr.getWantedCutoff(page, pageSize);
       return ok({
         totalRecords: result.totalRecords,
@@ -782,11 +832,12 @@ export const lidarrModule: ToolModule = {
 
     lidarr_get_track_files: async (args, clients) => {
       if (!clients.lidarr) throw new Error('Lidarr is not configured');
-      const artistId = args.artistId as number;
+      const { artistId, albumId } = args as { artistId: number; albumId?: number };
       const files = await clients.lidarr.getTrackFiles(artistId);
+      const filtered = albumId !== undefined ? files.filter(f => f.albumId === albumId) : files;
       return ok({
-        count: files.length,
-        files: files.map(f => ({
+        count: filtered.length,
+        files: filtered.map(f => ({
           id: f.id,
           path: f.path,
           size: formatBytes(f.size),
@@ -824,7 +875,7 @@ export const lidarrModule: ToolModule = {
       if (!clients.lidarr) throw new Error('Lidarr is not configured');
       const artistId = args.artistId as number | undefined;
       const page = (args.page as number | undefined) ?? 1;
-      const pageSize = (args.pageSize as number | undefined) ?? 20;
+      const pageSize = clampLimit((args.pageSize as number | undefined) ?? 20);
       const result = await clients.lidarr.getHistory(artistId, page, pageSize);
       return ok({
         totalRecords: result.totalRecords,
@@ -838,7 +889,6 @@ export const lidarrModule: ToolModule = {
           quality: r.quality?.quality?.name,
           date: r.date,
           eventType: r.eventType,
-          data: r.data,
         })),
       });
     },
@@ -1064,6 +1114,77 @@ export const lidarrModule: ToolModule = {
       const definition = args.definition as QualityDefinition;
       const updated = await clients.lidarr.updateQualityDefinition(id, { ...definition, id });
       return ok({ success: true, message: `Updated quality definition "${updated.title}"`, id: updated.id });
+    },
+
+    lidarr_get_quality_profile: async (args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const profileId = args.profileId as number;
+      const profile = await clients.lidarr.getQualityProfile(profileId);
+      return ok({
+        id: profile.id,
+        name: profile.name,
+        upgradeAllowed: profile.upgradeAllowed,
+        cutoff: profile.cutoff,
+        minFormatScore: profile.minFormatScore,
+        cutoffFormatScore: profile.cutoffFormatScore,
+        qualities: profile.items
+          .filter(i => i.allowed)
+          .map(i => i.quality ? i.quality.name : i.name),
+        customFormats: profile.formatItems.map(f => ({ id: f.format, name: f.name, score: f.score })),
+      });
+    },
+
+    lidarr_update_quality_profile: async (args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const { profileId, upgradeAllowed, cutoff, minFormatScore, cutoffFormatScore, formatScores } = args as {
+        profileId: number;
+        upgradeAllowed?: boolean;
+        cutoff?: number;
+        minFormatScore?: number;
+        cutoffFormatScore?: number;
+        formatScores?: Array<{ formatId: number; score: number }>;
+      };
+      const existing: QualityProfile = await clients.lidarr.getQualityProfile(profileId);
+      if (upgradeAllowed !== undefined) existing.upgradeAllowed = upgradeAllowed;
+      if (cutoff !== undefined) existing.cutoff = cutoff;
+      if (minFormatScore !== undefined) existing.minFormatScore = minFormatScore;
+      if (cutoffFormatScore !== undefined) existing.cutoffFormatScore = cutoffFormatScore;
+      if (formatScores) {
+        const scoreMap = new Map(formatScores.map(f => [f.formatId, f.score]));
+        existing.formatItems = existing.formatItems.map(f =>
+          scoreMap.has(f.format) ? { ...f, score: scoreMap.get(f.format)! } : f
+        );
+      }
+      const updated = await clients.lidarr.updateQualityProfile(profileId, existing);
+      return ok({
+        success: true,
+        message: `Updated quality profile "${updated.name}"`,
+        id: updated.id,
+        name: updated.name,
+        upgradeAllowed: updated.upgradeAllowed,
+        minFormatScore: updated.minFormatScore,
+        cutoffFormatScore: updated.cutoffFormatScore,
+        customFormats: updated.formatItems.map(f => ({ id: f.format, name: f.name, score: f.score })),
+      });
+    },
+
+    lidarr_get_album_by_id: async (args, clients) => {
+      if (!clients.lidarr) throw new Error('Lidarr is not configured');
+      const albumId = args.albumId as number;
+      const a = await clients.lidarr.getAlbumById(albumId);
+      return ok({
+        id: a.id,
+        title: a.title,
+        releaseDate: a.releaseDate,
+        albumType: a.albumType,
+        monitored: a.monitored,
+        tracks: a.statistics
+          ? `${a.statistics.trackFileCount}/${a.statistics.totalTrackCount}`
+          : 'unknown',
+        sizeOnDisk: formatBytes(a.statistics?.sizeOnDisk ?? 0),
+        percentComplete: a.statistics?.percentOfTracks ?? 0,
+        grabbed: a.grabbed,
+      });
     },
   },
 };

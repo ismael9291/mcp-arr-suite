@@ -209,10 +209,10 @@ describe('expected tool counts', () => {
     const registry = buildFullRegistry();
     const total = registry.getTools().length;
     // cross-service: 2, trash: 7, sonarr config: 7, sonarr: 22,
-    // radarr config: 7, radarr: 18, lidarr config: 7, lidarr: 9, prowlarr: 9
-    // = 88 total
+    // radarr config: 7, radarr: 18, lidarr config: 7, lidarr: 12, prowlarr: 16
+    // = 200 total (after gap-closure additions 2026-04-10)
     expect(total).toBeGreaterThan(60);
-    expect(total).toBeLessThan(200);
+    expect(total).toBeLessThan(250);
   });
 
   it('buildConfigModule always generates exactly 7 tools', () => {

@@ -661,7 +661,7 @@ export const radarrModule: ToolModule = {
           status: q.status,
           trackedDownloadStatus: q.trackedDownloadStatus,
           trackedDownloadState: q.trackedDownloadState,
-          statusMessages: q.statusMessages,
+          ...(q.statusMessages?.length ? { statusMessages: q.statusMessages.flatMap(m => m.messages) } : {}),
           progress: q.size > 0 ? `${((1 - q.sizeleft / q.size) * 100).toFixed(1)}%` : '0%',
           timeLeft: q.timeleft,
           downloadClient: q.downloadClient,
@@ -835,7 +835,6 @@ export const radarrModule: ToolModule = {
           quality: (r['quality'] as Record<string, unknown> | undefined)?.['quality'],
           languages: r['languages'],
           downloadId: r['downloadId'],
-          data: r['data'],
         })),
       });
     },

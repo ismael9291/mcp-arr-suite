@@ -221,11 +221,12 @@ export const sonarrModule: ToolModule = {
     },
     {
       name: 'sonarr_get_episode_files',
-      description: 'Get file details for all episodes in a series — quality, size, codecs, languages.',
+      description: 'Get file details for episodes in a series — quality, size, codecs, languages. Use seasonNumber to filter to a single season and avoid large responses.',
       inputSchema: {
         type: 'object' as const,
         properties: {
           seriesId: { type: 'number', description: 'Series ID (from sonarr_get_series)' },
+          seasonNumber: { type: 'number', description: 'Optional — filter to a specific season' },
         },
         required: ['seriesId'],
       },
@@ -715,7 +716,7 @@ export const sonarrModule: ToolModule = {
           status: q.status,
           trackedDownloadStatus: q.trackedDownloadStatus,
           trackedDownloadState: q.trackedDownloadState,
-          statusMessages: q.statusMessages,
+          ...(q.statusMessages?.length ? { statusMessages: q.statusMessages.flatMap(m => m.messages) } : {}),
           progress: q.size > 0 ? `${((1 - q.sizeleft / q.size) * 100).toFixed(1)}%` : '0%',
           timeLeft: q.timeleft,
           downloadClient: q.downloadClient,
@@ -990,12 +991,13 @@ export const sonarrModule: ToolModule = {
 
     sonarr_get_episode_files: async (args, clients) => {
       if (!clients.sonarr) throw new Error('Sonarr is not configured');
-      const seriesId = args.seriesId as number;
+      const { seriesId, seasonNumber } = args as { seriesId: number; seasonNumber?: number };
       const files = await clients.sonarr.getEpisodeFiles(seriesId);
+      const filtered = seasonNumber !== undefined ? files.filter(f => f.seasonNumber === seasonNumber) : files;
       return ok({
-        count: files.length,
-        totalSize: formatBytes(files.reduce((sum, f) => sum + f.size, 0)),
-        files: files.map(f => ({
+        count: filtered.length,
+        totalSize: formatBytes(filtered.reduce((sum, f) => sum + f.size, 0)),
+        files: filtered.map(f => ({
           id: f.id,
           seasonNumber: f.seasonNumber,
           relativePath: f.relativePath,

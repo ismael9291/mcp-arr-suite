@@ -12,6 +12,7 @@ import {
   prowlarrDownloadClientFixtures,
   prowlarrApplicationFixtures,
 } from '../../fixtures/prowlarr/indexers.js';
+import { systemTaskFixtures, logPageFixture, notificationFixtures, importListFixtures } from '../../fixtures/shared/config.js';
 
 const BASE = 'http://prowlarr.test';
 const API = `${BASE}/api/v1`;
@@ -356,3 +357,125 @@ describe('prowlarr_delete_tag', () => {
     await expect(prowlarrModule.handlers['prowlarr_delete_tag']({ tagId: 1 }, {})).rejects.toThrow('Prowlarr is not configured');
   });
 });
+
+// ─── prowlarr_get_logs ────────────────────────────────────────────────────────
+
+describe('prowlarr_get_logs', () => {
+  it('returns log entries with level and message', async () => {
+    mswServer.use(http.get(`${API}/log`, () => HttpResponse.json(logPageFixture)));
+    const result = await prowlarrModule.handlers['prowlarr_get_logs']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.totalRecords).toBe(logPageFixture.totalRecords);
+    expect(data.records[0].level).toBe('info');
+    expect(data.records[1].level).toBe('warn');
+    expect(data.records[1]).toHaveProperty('exception');
+  });
+
+  it('defaults to page 1 and pageSize 20', async () => {
+    let capturedUrl: string | undefined;
+    mswServer.use(http.get(`${API}/log`, ({ request }) => {
+      capturedUrl = request.url;
+      return HttpResponse.json(logPageFixture);
+    }));
+    await prowlarrModule.handlers['prowlarr_get_logs']({}, clients);
+    expect(capturedUrl).toContain('page=1');
+    expect(capturedUrl).toContain('pageSize=20');
+  });
+
+  it('caps pageSize at 100', async () => {
+    let capturedUrl: string | undefined;
+    mswServer.use(http.get(`${API}/log`, ({ request }) => {
+      capturedUrl = request.url;
+      return HttpResponse.json(logPageFixture);
+    }));
+    await prowlarrModule.handlers['prowlarr_get_logs']({ pageSize: 999 }, clients);
+    expect(capturedUrl).toContain('pageSize=100');
+  });
+
+  it('passes level filter when provided', async () => {
+    let capturedUrl: string | undefined;
+    mswServer.use(http.get(`${API}/log`, ({ request }) => {
+      capturedUrl = request.url;
+      return HttpResponse.json(logPageFixture);
+    }));
+    await prowlarrModule.handlers['prowlarr_get_logs']({ level: 'error' }, clients);
+    expect(capturedUrl).toContain('level=error');
+  });
+
+  it('throws when prowlarr is not configured', async () => {
+    await expect(prowlarrModule.handlers['prowlarr_get_logs']({}, {})).rejects.toThrow('Prowlarr is not configured');
+  });
+});
+
+// ─── prowlarr_get_system_tasks ────────────────────────────────────────────────
+
+describe('prowlarr_get_system_tasks', () => {
+  it('returns system tasks with timing fields', async () => {
+    mswServer.use(http.get(`${API}/system/task`, () => HttpResponse.json(systemTaskFixtures)));
+    const result = await prowlarrModule.handlers['prowlarr_get_system_tasks']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.count).toBe(systemTaskFixtures.length);
+    expect(data.tasks[0].name).toBe('Housekeeping');
+    expect(data.tasks[0]).toHaveProperty('nextExecution');
+    expect(data.tasks[0]).toHaveProperty('isRunning');
+  });
+
+  it('throws when prowlarr is not configured', async () => {
+    await expect(prowlarrModule.handlers['prowlarr_get_system_tasks']({}, {})).rejects.toThrow('Prowlarr is not configured');
+  });
+});
+
+// ─── prowlarr_get_command_status ──────────────────────────────────────────────
+
+describe('prowlarr_get_command_status', () => {
+  const commandResponse = { id: 42, name: 'Backup', status: 'completed', message: 'Completed', started: '2024-03-01T00:00:00Z', ended: '2024-03-01T00:01:00Z' };
+
+  it('returns command status fields', async () => {
+    mswServer.use(http.get(`${API}/command/42`, () => HttpResponse.json(commandResponse)));
+    const result = await prowlarrModule.handlers['prowlarr_get_command_status']({ commandId: 42 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.id).toBe(42);
+    expect(data.status).toBe('completed');
+  });
+
+  it('throws when prowlarr is not configured', async () => {
+    await expect(prowlarrModule.handlers['prowlarr_get_command_status']({ commandId: 1 }, {})).rejects.toThrow('Prowlarr is not configured');
+  });
+});
+
+// ─── prowlarr_trigger_backup ──────────────────────────────────────────────────
+
+describe('prowlarr_trigger_backup', () => {
+  it('posts Backup command and returns commandId', async () => {
+    mswServer.use(http.post(`${API}/command`, () => HttpResponse.json({ id: 99 })));
+    const result = await prowlarrModule.handlers['prowlarr_trigger_backup']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.commandId).toBe(99);
+    expect(data.message).toContain('triggered');
+  });
+
+  it('throws when prowlarr is not configured', async () => {
+    await expect(prowlarrModule.handlers['prowlarr_trigger_backup']({}, {})).rejects.toThrow('Prowlarr is not configured');
+  });
+});
+
+// ─── prowlarr_get_notifications ───────────────────────────────────────────────
+
+describe('prowlarr_get_notifications', () => {
+  it('returns notification list with implementation and trigger flags', async () => {
+    mswServer.use(http.get(`${API}/notification`, () => HttpResponse.json(notificationFixtures)));
+    const result = await prowlarrModule.handlers['prowlarr_get_notifications']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.count).toBe(notificationFixtures.length);
+    expect(data.notifications[0].name).toBe('Slack');
+    expect(data.notifications[0].implementation).toBe('Slack');
+    expect(data.notifications[0].triggers).toHaveProperty('onGrab');
+    expect(data.notifications[0].triggers).toHaveProperty('onHealthIssue');
+  });
+
+  it('throws when prowlarr is not configured', async () => {
+    await expect(prowlarrModule.handlers['prowlarr_get_notifications']({}, {})).rejects.toThrow('Prowlarr is not configured');
+  });
+});
+
