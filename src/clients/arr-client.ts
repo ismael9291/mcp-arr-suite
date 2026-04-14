@@ -1045,6 +1045,10 @@ export class SonarrClient extends ArrClient {
     await this.request<void>(`/episodefile/${fileId}`, { method: 'DELETE' });
   }
 
+  async deleteEpisodeFiles(ids: number[]): Promise<void> {
+    await this.request<void>('/episodefile/bulk', { method: 'DELETE', body: JSON.stringify({ episodeFileIds: ids }) });
+  }
+
   async getBlocklist(page = 1, pageSize = 20): Promise<{ records: SeriesBlocklistRecord[]; totalRecords: number }> {
     return this.request<{ records: SeriesBlocklistRecord[]; totalRecords: number }>(
       `/blocklist?page=${page}&pageSize=${pageSize}&sortKey=date&sortDirection=descending`
@@ -1481,5 +1485,29 @@ export class ProwlarrClient extends ArrClient {
 
   async getApplications(): Promise<ProwlarrApplication[]> {
     return this.request<ProwlarrApplication[]>('/applications');
+  }
+
+  async getIndexer(id: number): Promise<Indexer & Record<string, unknown>> {
+    return this.request<Indexer & Record<string, unknown>>(`/indexer/${id}`);
+  }
+
+  async testIndexer(indexer: Indexer & Record<string, unknown>): Promise<{ id: number; isValid: boolean; validationFailures: Array<{ propertyName: string; errorMessage: string }> }> {
+    return this.request('/indexer/test', { method: 'POST', body: JSON.stringify(indexer) });
+  }
+
+  async updateIndexer(id: number, patch: Partial<Pick<Indexer, 'enableRss' | 'enableAutomaticSearch' | 'enableInteractiveSearch' | 'priority'>>): Promise<Indexer & Record<string, unknown>> {
+    const current = await this.getIndexer(id);
+    const updated = { ...current, ...patch };
+    return this.request<Indexer & Record<string, unknown>>(`/indexer/${id}`, { method: 'PUT', body: JSON.stringify(updated) });
+  }
+
+  async getApplication(id: number): Promise<ProwlarrApplication> {
+    return this.request<ProwlarrApplication>(`/applications/${id}`);
+  }
+
+  async updateApplication(id: number, patch: { syncLevel: string }): Promise<ProwlarrApplication> {
+    const current = await this.getApplication(id);
+    const updated = { ...current, ...patch };
+    return this.request<ProwlarrApplication>(`/applications/${id}`, { method: 'PUT', body: JSON.stringify(updated) });
   }
 }

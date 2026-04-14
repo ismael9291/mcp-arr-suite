@@ -1,15 +1,15 @@
 # mcp-arr-suite
 
-MCP server for the \*arr media management suite — Sonarr, Radarr, Lidarr, and Prowlarr.
+MCP server for the \*arr media management suite — Sonarr, Radarr, Lidarr, Prowlarr, and SABnzbd.
 
-Exposes your \*arr services as MCP tools consumable by Claude or any MCP-capable client.
+Exposes your media services as MCP tools consumable by Claude or any MCP-capable client. 215 tools across 7 modules.
 
 <img width="854" height="739" alt="MCP Suite Image Diagram" src="https://github.com/user-attachments/assets/099d2cb3-ff71-4a27-8816-6e0d66f22a7a" />
 
 ## Requirements
 
 - Node.js >= 18
-- At least one \*arr service running and accessible
+- At least one service running and accessible
 
 ## Install
 
@@ -41,10 +41,14 @@ All configuration is via environment variables. Set at least one service pair:
 | `LIDARR_API_KEY` | Lidarr API key |
 | `PROWLARR_URL` | Prowlarr base URL (e.g. `http://localhost:9696`) |
 | `PROWLARR_API_KEY` | Prowlarr API key |
+| `SABNZBD_URL` | SABnzbd base URL (e.g. `http://localhost:8080`) |
+| `SABNZBD_API_KEY` | SABnzbd API key (from `sabnzbd.ini`, field `api_key`) |
+
+Tools are only registered for services that are configured.
 
 ## MCP Client Setup
 
-Example Claude Desktop config (npm install):
+Example Claude Desktop / Claude Code config (npm install):
 
 ```json
 {
@@ -52,10 +56,14 @@ Example Claude Desktop config (npm install):
     "mcp-arr-suite": {
       "command": "mcp-arr-suite",
       "env": {
+        "SONARR_URL": "http://localhost:8989",
+        "SONARR_API_KEY": "...",
         "RADARR_URL": "http://localhost:7878",
         "RADARR_API_KEY": "...",
-        "SONARR_URL": "http://localhost:8989",
-        "SONARR_API_KEY": "..."
+        "PROWLARR_URL": "http://localhost:9696",
+        "PROWLARR_API_KEY": "...",
+        "SABNZBD_URL": "http://localhost:8080",
+        "SABNZBD_API_KEY": "..."
       }
     }
   }
@@ -71,106 +79,77 @@ If running from source, replace `"command": "mcp-arr-suite"` with:
 
 ## Tools
 
-Tools are only registered for configured services.
-
-### Cross-service
+### Cross-service (always available)
 | Tool | Description |
 |---|---|
 | `arr_status` | Connection status and version for all configured services |
-| `arr_search_all` | Search across all configured services simultaneously |
+| `arr_search_all` | Search across all configured media services simultaneously |
 
-### Sonarr (TV)
-| Tool | Description |
+### Sonarr — 54 tools
+| Category | Tools |
 |---|---|
-| `sonarr_get_series` | List library with pagination and title filter |
-| `sonarr_search` | Search for a series by name (returns tvdbId for adding) |
-| `sonarr_add_series` | Add a series |
-| `sonarr_delete_series` | Remove a series, optionally deleting files |
-| `sonarr_update_series` | Update monitored status, quality profile, tags |
-| `sonarr_get_episodes` | List episodes for a series, optionally by season |
-| `sonarr_get_episode_files` | File details for all episodes in a series |
-| `sonarr_delete_episode_file` | Delete a specific episode file from disk |
-| `sonarr_search_missing` | Trigger search for all missing episodes in a series |
-| `sonarr_search_episode` | Trigger search for specific episode(s) |
-| `sonarr_refresh_series` | Trigger metadata refresh |
-| `sonarr_monitor_episodes` | Bulk set monitored/unmonitored on episodes |
-| `sonarr_season_pass` | Bulk set monitored status per season |
-| `sonarr_get_queue` | Current download queue |
-| `sonarr_remove_from_queue` | Remove queue items, optionally blocklisting |
-| `sonarr_get_calendar` | Upcoming episode air dates |
-| `sonarr_get_history` | Download history, optionally filtered by series |
-| `sonarr_get_wanted_missing` | Monitored episodes not yet downloaded |
-| `sonarr_get_wanted_cutoff` | Episodes that haven't met the quality cutoff |
-| `sonarr_get_blocklist` | Blocked/failed releases |
-| `sonarr_delete_from_blocklist` | Remove a blocklist entry |
-| `sonarr_get_disk_space` | Disk space for all root folders |
-| `sonarr_get_quality_profiles` | Quality profiles |
-| `sonarr_get_health` | Health check warnings |
-| `sonarr_get_root_folders` | Root folders and free space |
-| `sonarr_get_download_clients` | Download client configuration |
-| `sonarr_get_naming` | File and folder naming configuration |
-| `sonarr_get_tags` | All tags |
-| `sonarr_review_setup` | Full configuration review in one call |
+| Library | `sonarr_get_series`, `sonarr_search`, `sonarr_add_series`, `sonarr_delete_series`, `sonarr_update_series`, `sonarr_bulk_update_series`, `sonarr_bulk_delete_series` |
+| Episodes | `sonarr_get_episodes`, `sonarr_get_episode_files`, `sonarr_delete_episode_file`, `sonarr_delete_episode_files_bulk`, `sonarr_monitor_episodes`, `sonarr_season_pass` |
+| Search & import | `sonarr_search_missing`, `sonarr_search_episode`, `sonarr_search_releases`, `sonarr_grab_release`, `sonarr_get_manual_import`, `sonarr_process_manual_import` |
+| Queue | `sonarr_get_queue`, `sonarr_remove_from_queue`, `sonarr_get_wanted_missing`, `sonarr_get_wanted_cutoff` |
+| History & blocklist | `sonarr_get_history`, `sonarr_get_blocklist`, `sonarr_delete_from_blocklist` |
+| Quality & formats | `sonarr_get_quality_profiles`, `sonarr_get_quality_profile`, `sonarr_update_quality_profile`, `sonarr_update_quality_definition`, `sonarr_list_custom_formats`, `sonarr_get_custom_format`, `sonarr_create_custom_format`, `sonarr_update_custom_format`, `sonarr_delete_custom_format` |
+| Config | `sonarr_get_import_lists`, `sonarr_update_import_list`, `sonarr_get_import_exclusions`, `sonarr_delete_import_exclusion`, `sonarr_get_tags`, `sonarr_create_tag`, `sonarr_delete_tag` |
+| System | `sonarr_get_health`, `sonarr_get_disk_space`, `sonarr_get_root_folders`, `sonarr_get_download_clients`, `sonarr_get_naming`, `sonarr_get_system_tasks`, `sonarr_get_logs`, `sonarr_get_notifications`, `sonarr_get_calendar`, `sonarr_get_command_status` |
+| Commands | `sonarr_refresh_series`, `sonarr_trigger_backup`, `sonarr_trigger_rss_sync`, `sonarr_trigger_refresh_monitored_downloads`, `sonarr_trigger_cutoff_unmet_search`, `sonarr_trigger_rescan_series`, `sonarr_trigger_rename_series`, `sonarr_trigger_downloaded_scan` |
+| Overview | `sonarr_review_setup` |
 
-### Radarr (Movies)
-| Tool | Description |
+### Radarr — 50 tools
+| Category | Tools |
 |---|---|
-| `radarr_get_movies` | List library with pagination and title filter |
-| `radarr_search` | Search for a movie by name (returns tmdbId for adding) |
-| `radarr_add_movie` | Add a movie |
-| `radarr_delete_movie` | Remove a movie, optionally deleting files |
-| `radarr_update_movie` | Update monitored status, quality profile, availability, tags |
-| `radarr_get_movie_files` | File details for a movie |
-| `radarr_delete_movie_file` | Delete a specific movie file from disk |
-| `radarr_search_movie` | Trigger download search for a library movie |
-| `radarr_refresh_movie` | Trigger metadata refresh |
-| `radarr_get_queue` | Current download queue |
-| `radarr_remove_from_queue` | Remove queue items, optionally blocklisting |
-| `radarr_get_calendar` | Upcoming movie releases |
-| `radarr_get_history` | Download history, optionally filtered by movie |
-| `radarr_get_wanted_missing` | Monitored movies not yet downloaded |
-| `radarr_get_wanted_cutoff` | Movies that haven't met the quality cutoff |
-| `radarr_get_blocklist` | Blocked/failed releases |
-| `radarr_delete_from_blocklist` | Remove a blocklist entry |
-| `radarr_get_disk_space` | Disk space for all root folders |
-| `radarr_get_quality_profiles` | Quality profiles |
-| `radarr_get_health` | Health check warnings |
-| `radarr_get_root_folders` | Root folders and free space |
-| `radarr_get_download_clients` | Download client configuration |
-| `radarr_get_naming` | File and folder naming configuration |
-| `radarr_get_tags` | All tags |
-| `radarr_review_setup` | Full configuration review in one call |
+| Library | `radarr_get_movies`, `radarr_search`, `radarr_add_movie`, `radarr_delete_movie`, `radarr_update_movie`, `radarr_bulk_update_movies`, `radarr_bulk_delete_movies` |
+| Files | `radarr_get_movie_files`, `radarr_delete_movie_file` |
+| Search & import | `radarr_search_movie`, `radarr_search_releases`, `radarr_grab_release`, `radarr_get_manual_import`, `radarr_process_manual_import` |
+| Queue | `radarr_get_queue`, `radarr_remove_from_queue`, `radarr_get_wanted_missing`, `radarr_get_wanted_cutoff` |
+| History & blocklist | `radarr_get_history`, `radarr_get_blocklist`, `radarr_delete_from_blocklist` |
+| Quality & formats | `radarr_get_quality_profiles`, `radarr_get_quality_profile`, `radarr_update_quality_profile`, `radarr_update_quality_definition`, `radarr_list_custom_formats`, `radarr_get_custom_format`, `radarr_create_custom_format`, `radarr_update_custom_format`, `radarr_delete_custom_format` |
+| Config | `radarr_get_import_lists`, `radarr_update_import_list`, `radarr_get_import_exclusions`, `radarr_delete_import_exclusion`, `radarr_get_tags`, `radarr_create_tag`, `radarr_delete_tag` |
+| System | `radarr_get_health`, `radarr_get_disk_space`, `radarr_get_root_folders`, `radarr_get_download_clients`, `radarr_get_naming`, `radarr_get_system_tasks`, `radarr_get_logs`, `radarr_get_notifications`, `radarr_get_calendar`, `radarr_get_command_status` |
+| Commands | `radarr_refresh_movie`, `radarr_trigger_backup`, `radarr_trigger_rss_sync`, `radarr_trigger_refresh_monitored_downloads`, `radarr_trigger_cutoff_unmet_search`, `radarr_trigger_rescan_movies`, `radarr_trigger_rename_movies`, `radarr_trigger_missing_search`, `radarr_trigger_downloaded_scan` |
+| Overview | `radarr_review_setup` |
 
-### Lidarr (Music)
-| Tool | Description |
+### Lidarr — 49 tools
+| Category | Tools |
 |---|---|
-| `lidarr_get_artists` | List library with pagination and name filter |
-| `lidarr_search` | Search for an artist by name (returns foreignArtistId for adding) |
-| `lidarr_add_artist` | Add an artist |
-| `lidarr_get_albums` | Albums for an artist with download status |
-| `lidarr_search_album` | Trigger download search for a specific album |
-| `lidarr_search_missing` | Trigger search for all missing albums for an artist |
-| `lidarr_get_queue` | Current download queue |
-| `lidarr_get_calendar` | Upcoming album releases |
-| `lidarr_get_metadata_profiles` | Metadata profiles (required when adding artists) |
-| `lidarr_get_quality_profiles` | Quality profiles |
-| `lidarr_get_health` | Health check warnings |
-| `lidarr_get_root_folders` | Root folders and free space |
-| `lidarr_get_download_clients` | Download client configuration |
-| `lidarr_get_naming` | File and folder naming configuration |
-| `lidarr_get_tags` | All tags |
-| `lidarr_review_setup` | Full configuration review in one call |
+| Library | `lidarr_get_artists`, `lidarr_search`, `lidarr_add_artist`, `lidarr_delete_artist`, `lidarr_update_artist` |
+| Albums & files | `lidarr_get_albums`, `lidarr_get_album_by_id`, `lidarr_monitor_albums`, `lidarr_get_track_files`, `lidarr_delete_track_file` |
+| Search | `lidarr_search_album`, `lidarr_search_missing` |
+| Queue | `lidarr_get_queue`, `lidarr_remove_from_queue`, `lidarr_get_wanted_missing`, `lidarr_get_wanted_cutoff` |
+| History & blocklist | `lidarr_get_history`, `lidarr_get_blocklist`, `lidarr_delete_from_blocklist` |
+| Quality & formats | `lidarr_get_quality_profiles`, `lidarr_get_quality_profile`, `lidarr_update_quality_profile`, `lidarr_update_quality_definition`, `lidarr_list_custom_formats`, `lidarr_get_custom_format`, `lidarr_create_custom_format`, `lidarr_update_custom_format`, `lidarr_delete_custom_format` |
+| Config | `lidarr_get_metadata_profiles`, `lidarr_get_import_lists`, `lidarr_update_import_list`, `lidarr_get_import_exclusions`, `lidarr_delete_import_exclusion`, `lidarr_get_tags`, `lidarr_create_tag`, `lidarr_delete_tag` |
+| System | `lidarr_get_health`, `lidarr_get_disk_space`, `lidarr_get_root_folders`, `lidarr_get_download_clients`, `lidarr_get_naming`, `lidarr_get_system_tasks`, `lidarr_get_logs`, `lidarr_get_notifications`, `lidarr_get_calendar`, `lidarr_get_command_status` |
+| Commands | `lidarr_refresh_artist`, `lidarr_trigger_backup`, `lidarr_trigger_rss_sync`, `lidarr_trigger_refresh_monitored_downloads`, `lidarr_trigger_cutoff_unmet_search`, `lidarr_trigger_rescan_artists`, `lidarr_trigger_rename_artists`, `lidarr_trigger_refresh_all_artists`, `lidarr_trigger_downloaded_scan` |
+| Overview | `lidarr_review_setup` |
 
-### Prowlarr (Indexers)
-| Tool | Description |
+### Prowlarr — 24 tools
+| Category | Tools |
 |---|---|
-| `prowlarr_get_indexers` | All configured indexers |
-| `prowlarr_search` | Search across all indexers |
-| `prowlarr_test_indexers` | Test all indexers and return health status |
-| `prowlarr_get_stats` | Indexer query/grab statistics |
-| `prowlarr_get_health` | Health check warnings |
+| Indexers | `prowlarr_get_indexers`, `prowlarr_get_indexer`, `prowlarr_update_indexer`, `prowlarr_test_indexer`, `prowlarr_test_indexers`, `prowlarr_search` |
+| Applications | `prowlarr_get_apps`, `prowlarr_update_app` |
+| Stats & history | `prowlarr_get_stats`, `prowlarr_get_history` |
+| Config | `prowlarr_get_tags`, `prowlarr_create_tag`, `prowlarr_delete_tag`, `prowlarr_get_download_clients`, `prowlarr_get_notifications`, `prowlarr_test_notification` |
+| System | `prowlarr_get_status`, `prowlarr_get_health`, `prowlarr_get_logs`, `prowlarr_get_system_tasks`, `prowlarr_get_command_status` |
+| Commands | `prowlarr_trigger_backup`, `prowlarr_trigger_rss_sync`, `prowlarr_sync_apps` |
 
-### TRaSH Guides (always available)
+### SABnzbd — 29 tools
+| Category | Tools |
+|---|---|
+| Queue | `sabnzbd_get_queue`, `sabnzbd_pause`, `sabnzbd_resume`, `sabnzbd_set_priority`, `sabnzbd_set_speed_limit`, `sabnzbd_change_cat`, `sabnzbd_change_opts` |
+| History | `sabnzbd_get_history`, `sabnzbd_retry`, `sabnzbd_retry_all`, `sabnzbd_mark_completed`, `sabnzbd_purge_failed` |
+| Delete | `sabnzbd_delete`, `sabnzbd_delete_orphans` |
+| Post-processing | `sabnzbd_pause_pp`, `sabnzbd_resume_pp`, `sabnzbd_add_orphans` |
+| Add NZBs | `sabnzbd_add_url` |
+| Config | `sabnzbd_get_cats`, `sabnzbd_get_scripts`, `sabnzbd_get_paths` |
+| System | `sabnzbd_get_status`, `sabnzbd_get_warnings`, `sabnzbd_unblock_server`, `sabnzbd_server_stats`, `sabnzbd_version` |
+| Triggers | `sabnzbd_rss_now`, `sabnzbd_watched_now`, `sabnzbd_get_files` |
+
+### TRaSH Guides — 7 tools (always available)
 | Tool | Description |
 |---|---|
 | `trash_list_profiles` | List recommended quality profiles from TRaSH Guides |
@@ -184,11 +163,13 @@ Tools are only registered for configured services.
 ## Testing
 
 ```bash
-# Unit tests (mocked, no services required)
+# Unit tests (MSW mocks, no services required)
 npm test
 
 # Live smoke tests against real services
-RADARR_URL=http://localhost:7878 RADARR_API_KEY=... npm run test:live
+SONARR_URL=http://localhost:8989 SONARR_API_KEY=... \
+RADARR_URL=http://localhost:7878 RADARR_API_KEY=... \
+npm run test:live
 ```
 
 Additional live test variables:
@@ -197,9 +178,13 @@ Additional live test variables:
 |---|---|
 | `MCP_ARR_LIVE_SEARCH_TERM` | Override default search term (default: `dune`) |
 | `MCP_ARR_ENABLE_TRASH=1` | Include TRaSH Guides smoke tests |
-| `MCP_ARR_ENABLE_COMMAND_SMOKE=1` | Include safe command tests (refresh, search) |
+| `MCP_ARR_ENABLE_COMMAND_SMOKE=1` | Include command tests (refresh, scan, trigger, etc.) |
 | `RADARR_TEST_MOVIE_ID` | Movie ID for command smoke tests |
+| `RADARR_TEST_DOWNLOADS_PATH` | Downloads path for `radarr_trigger_downloaded_scan` (default: `/downloads/complete`) |
 | `SONARR_TEST_SERIES_ID` | Series ID for command smoke tests |
+| `SONARR_TEST_EPISODE_ID` | Episode ID for release search tests |
+| `SONARR_TEST_DOWNLOADS_PATH` | Downloads path for `sonarr_trigger_downloaded_scan` (default: `/downloads/complete`) |
+| `SONARR_TEST_IMPORT_FOLDER` | Folder for manual import tests (default: `/tmp`) |
 | `LIDARR_TEST_ARTIST_ID` | Artist ID for command smoke tests |
 
 ## API Documentation
@@ -208,6 +193,7 @@ Additional live test variables:
 - [Radarr API](https://wiki.servarr.com/radarr/api)
 - [Lidarr API](https://wiki.servarr.com/lidarr/api)
 - [Prowlarr API](https://wiki.servarr.com/prowlarr/api)
+- [SABnzbd API](https://sabnzbd.org/wiki/advanced/api)
 - [TRaSH Guides](https://trash-guides.info)
 
 ## License

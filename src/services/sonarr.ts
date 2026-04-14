@@ -243,6 +243,19 @@ export const sonarrModule: ToolModule = {
       },
     },
     {
+      name: 'sonarr_delete_episode_files_bulk',
+      description: 'Delete multiple episode files at once. Pass explicit fileIds, or pass seriesId (+ optional seasonNumber) to delete all files for a series or season. Use instead of calling sonarr_delete_episode_file in a loop.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          fileIds: { type: 'array', items: { type: 'number' }, description: 'Explicit list of episode file IDs to delete' },
+          seriesId: { type: 'number', description: 'Delete all files for this series (resolved automatically)' },
+          seasonNumber: { type: 'number', description: 'Combined with seriesId: only delete files for this season' },
+        },
+        required: [],
+      },
+    },
+    {
       name: 'sonarr_get_blocklist',
       description: 'Get the Sonarr blocklist — releases that were blocked/failed and won\'t be re-grabbed.',
       inputSchema: {
@@ -595,8 +608,14 @@ export const sonarrModule: ToolModule = {
     },
     {
       name: 'sonarr_trigger_downloaded_scan',
-      description: 'Force a scan of the completed downloads folder to import any files that were not auto-imported.',
-      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+      description: 'Force a scan of a completed downloads path to import any files that were not auto-imported. A path is required — pass the absolute path to the completed downloads folder (e.g. /downloads/complete).',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          path: { type: 'string', description: 'Absolute path to the completed downloads folder to scan (e.g. /downloads/complete)' },
+        },
+        required: ['path'],
+      },
     },
     {
       name: 'sonarr_bulk_update_series',
@@ -1020,6 +1039,24 @@ export const sonarrModule: ToolModule = {
       const fileId = args.fileId as number;
       await clients.sonarr.deleteEpisodeFile(fileId);
       return ok({ success: true, message: `Deleted episode file ${fileId} from disk` });
+    },
+
+    sonarr_delete_episode_files_bulk: async (args, clients) => {
+      if (!clients.sonarr) throw new Error('Sonarr is not configured');
+      const { fileIds, seriesId, seasonNumber } = args as { fileIds?: number[]; seriesId?: number; seasonNumber?: number };
+      if (!fileIds && seriesId === undefined) throw new Error('Provide fileIds or seriesId');
+      let ids: number[];
+      if (fileIds && fileIds.length > 0) {
+        ids = fileIds;
+      } else {
+        const files = await clients.sonarr.getEpisodeFiles(Number(seriesId));
+        ids = seasonNumber !== undefined
+          ? files.filter(f => f.seasonNumber === seasonNumber).map(f => f.id)
+          : files.map(f => f.id);
+      }
+      if (ids.length === 0) return ok({ success: true, deleted: 0, message: 'No files found to delete' });
+      await clients.sonarr.deleteEpisodeFiles(ids);
+      return ok({ success: true, deleted: ids.length, message: `Deleted ${ids.length} episode file${ids.length === 1 ? '' : 's'}` });
     },
 
     sonarr_get_blocklist: async (args, clients) => {
@@ -1465,10 +1502,11 @@ export const sonarrModule: ToolModule = {
       return ok({ success: true, message: seriesIds.length > 0 ? `Rename triggered for ${seriesIds.length} series` : 'Rename triggered for all series', commandId: result.id });
     },
 
-    sonarr_trigger_downloaded_scan: async (_args, clients) => {
+    sonarr_trigger_downloaded_scan: async (args, clients) => {
       if (!clients.sonarr) throw new Error('Sonarr is not configured');
-      const result = await clients.sonarr.runCommand('DownloadedEpisodesScan');
-      return ok({ success: true, message: 'Triggered scan of completed downloads folder', commandId: result.id });
+      const path = args.path as string;
+      const result = await clients.sonarr.runCommand('DownloadedEpisodesScan', { path });
+      return ok({ success: true, message: `Triggered scan of ${path}`, commandId: result.id });
     },
 
     sonarr_bulk_update_series: async (args, clients) => {
@@ -1511,7 +1549,7 @@ export const sonarrModule: ToolModule = {
           series: i.series,
           seasonNumber: i.seasonNumber,
           episodes: i.episodes,
-          quality: i.quality?.quality?.name,
+          quality: i.quality,
           size: formatBytes(i.size),
           rejections: i.rejections,
         })),

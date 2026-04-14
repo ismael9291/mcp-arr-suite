@@ -12,7 +12,7 @@ import {
   prowlarrDownloadClientFixtures,
   prowlarrApplicationFixtures,
 } from '../../fixtures/prowlarr/indexers.js';
-import { systemTaskFixtures, logPageFixture, notificationFixtures, importListFixtures } from '../../fixtures/shared/config.js';
+import { systemTaskFixtures, logPageFixture, notificationFixtures, importListFixtures, systemStatusFixture } from '../../fixtures/shared/config.js';
 
 const BASE = 'http://prowlarr.test';
 const API = `${BASE}/api/v1`;
@@ -476,6 +476,227 @@ describe('prowlarr_get_notifications', () => {
 
   it('throws when prowlarr is not configured', async () => {
     await expect(prowlarrModule.handlers['prowlarr_get_notifications']({}, {})).rejects.toThrow('Prowlarr is not configured');
+  });
+});
+
+// ─── prowlarr_get_status ──────────────────────────────────────────────────────
+
+describe('prowlarr_get_status', () => {
+  it('returns trimmed status fields', async () => {
+    mswServer.use(http.get(`${API}/system/status`, () => HttpResponse.json({
+      ...systemStatusFixture,
+      runtimeVersion: '8.0.4',
+      branch: 'main',
+      authentication: 'none',
+    })));
+    const result = await prowlarrModule.handlers['prowlarr_get_status']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.version).toBe(systemStatusFixture.version);
+    expect(data.buildTime).toBe(systemStatusFixture.buildTime);
+    expect(data.isDebug).toBe(false);
+    expect(data.appData).toBe(systemStatusFixture.appData);
+    expect(data.osName).toBe(systemStatusFixture.osName);
+    expect(data.runtimeVersion).toBe('8.0.4');
+    expect(data).not.toHaveProperty('branch');
+    expect(data).not.toHaveProperty('authentication');
+  });
+
+  it('throws when prowlarr is not configured', async () => {
+    await expect(prowlarrModule.handlers['prowlarr_get_status']({}, {})).rejects.toThrow('Prowlarr is not configured');
+  });
+});
+
+// ─── prowlarr_trigger_rss_sync ────────────────────────────────────────────────
+
+describe('prowlarr_trigger_rss_sync', () => {
+  it('posts RssSync command and returns commandId', async () => {
+    let commandName = '';
+    mswServer.use(http.post(`${API}/command`, async ({ request }) => {
+      const body = await request.json() as { name: string };
+      commandName = body.name;
+      return HttpResponse.json({ id: 200 });
+    }));
+    const result = await prowlarrModule.handlers['prowlarr_trigger_rss_sync']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.commandId).toBe(200);
+    expect(commandName).toBe('RssSync');
+  });
+
+  it('throws when prowlarr is not configured', async () => {
+    await expect(prowlarrModule.handlers['prowlarr_trigger_rss_sync']({}, {})).rejects.toThrow('Prowlarr is not configured');
+  });
+});
+
+// ─── prowlarr_sync_apps ───────────────────────────────────────────────────────
+
+describe('prowlarr_sync_apps', () => {
+  it('posts ApplicationIndexerSync and returns commandId with message', async () => {
+    let commandName = '';
+    mswServer.use(http.post(`${API}/command`, async ({ request }) => {
+      const body = await request.json() as { name: string };
+      commandName = body.name;
+      return HttpResponse.json({ id: 201 });
+    }));
+    const result = await prowlarrModule.handlers['prowlarr_sync_apps']({}, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.commandId).toBe(201);
+    expect(data.message).toContain('Sync triggered');
+    expect(commandName).toBe('ApplicationIndexerSync');
+  });
+
+  it('throws when prowlarr is not configured', async () => {
+    await expect(prowlarrModule.handlers['prowlarr_sync_apps']({}, {})).rejects.toThrow('Prowlarr is not configured');
+  });
+});
+
+// ─── prowlarr_test_indexer ────────────────────────────────────────────────────
+
+describe('prowlarr_test_indexer', () => {
+  it('returns valid result — GETs indexer then POSTs full object to /indexer/test', async () => {
+    let postedBody: Record<string, unknown> = {};
+    mswServer.use(
+      http.get(`${API}/indexer/1`, () => HttpResponse.json({ ...prowlarrIndexerFixtures[0], fields: [] })),
+      http.post(`${API}/indexer/test`, async ({ request }) => {
+        postedBody = await request.json() as Record<string, unknown>;
+        return HttpResponse.json({ id: 1, isValid: true, validationFailures: [] });
+      }),
+    );
+    const result = await prowlarrModule.handlers['prowlarr_test_indexer']({ id: 1 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.id).toBe(1);
+    expect(data.name).toBe('NZBgeek');
+    expect(data.isValid).toBe(true);
+    expect(data.errors).toHaveLength(0);
+    expect(postedBody['name']).toBe('NZBgeek');
+  });
+
+  it('returns errors for invalid indexer', async () => {
+    mswServer.use(
+      http.get(`${API}/indexer/2`, () => HttpResponse.json({ ...prowlarrIndexerFixtures[1], fields: [] })),
+      http.post(`${API}/indexer/test`, () => HttpResponse.json({
+        id: 2, isValid: false,
+        validationFailures: [{ propertyName: 'ApiKey', errorMessage: 'Invalid API key' }],
+      })),
+    );
+    const result = await prowlarrModule.handlers['prowlarr_test_indexer']({ id: 2 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.isValid).toBe(false);
+    expect(data.errors).toContain('Invalid API key');
+  });
+
+  it('throws when prowlarr is not configured', async () => {
+    await expect(prowlarrModule.handlers['prowlarr_test_indexer']({ id: 1 }, {})).rejects.toThrow('Prowlarr is not configured');
+  });
+});
+
+// ─── prowlarr_update_indexer ──────────────────────────────────────────────────
+
+describe('prowlarr_update_indexer', () => {
+  it('fetches current indexer, applies patch, and PUTs back', async () => {
+    let putBody: Record<string, unknown> = {};
+    mswServer.use(
+      http.get(`${API}/indexer/1`, () => HttpResponse.json({ ...prowlarrIndexerFixtures[0], fields: [] })),
+      http.put(`${API}/indexer/1`, async ({ request }) => {
+        putBody = await request.json() as Record<string, unknown>;
+        return HttpResponse.json({ ...prowlarrIndexerFixtures[0], enableRss: false });
+      }),
+    );
+    const result = await prowlarrModule.handlers['prowlarr_update_indexer']({ id: 1, enableRss: false }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.id).toBe(1);
+    expect(data.name).toBe('NZBgeek');
+    expect(data.changes).toEqual({ enableRss: false });
+    expect(putBody['enableRss']).toBe(false);
+  });
+
+  it('only echoes changed fields in response', async () => {
+    mswServer.use(
+      http.get(`${API}/indexer/1`, () => HttpResponse.json({ ...prowlarrIndexerFixtures[0], fields: [] })),
+      http.put(`${API}/indexer/1`, () => HttpResponse.json({ ...prowlarrIndexerFixtures[0], priority: 10 })),
+    );
+    const result = await prowlarrModule.handlers['prowlarr_update_indexer']({ id: 1, priority: 10 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(Object.keys(data.changes)).toEqual(['priority']);
+    expect(data.changes.priority).toBe(10);
+  });
+
+  it('throws when prowlarr is not configured', async () => {
+    await expect(prowlarrModule.handlers['prowlarr_update_indexer']({ id: 1, enableRss: true }, {})).rejects.toThrow('Prowlarr is not configured');
+  });
+});
+
+// ─── prowlarr_get_indexer ─────────────────────────────────────────────────────
+
+describe('prowlarr_get_indexer', () => {
+  it('returns single indexer fields without fields[] array', async () => {
+    mswServer.use(http.get(`${API}/indexer/1`, () => HttpResponse.json({
+      ...prowlarrIndexerFixtures[0],
+      fields: [{ name: 'apiKey', value: 'secret' }],
+    })));
+    const result = await prowlarrModule.handlers['prowlarr_get_indexer']({ id: 1 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.id).toBe(1);
+    expect(data.name).toBe('NZBgeek');
+    expect(data.protocol).toBe('usenet');
+    expect(data.enableRss).toBe(true);
+    expect(data.priority).toBe(25);
+    expect(data).not.toHaveProperty('fields');
+  });
+
+  it('throws when prowlarr is not configured', async () => {
+    await expect(prowlarrModule.handlers['prowlarr_get_indexer']({ id: 1 }, {})).rejects.toThrow('Prowlarr is not configured');
+  });
+});
+
+// ─── prowlarr_update_app ──────────────────────────────────────────────────────
+
+describe('prowlarr_update_app', () => {
+  it('fetches application, patches syncLevel, and PUTs back', async () => {
+    let putBody: Record<string, unknown> = {};
+    mswServer.use(
+      http.get(`${API}/applications/1`, () => HttpResponse.json(prowlarrApplicationFixtures[0])),
+      http.put(`${API}/applications/1`, async ({ request }) => {
+        putBody = await request.json() as Record<string, unknown>;
+        return HttpResponse.json({ ...prowlarrApplicationFixtures[0], syncLevel: 'addOnly' });
+      }),
+    );
+    const result = await prowlarrModule.handlers['prowlarr_update_app']({ id: 1, syncLevel: 'addOnly' }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.id).toBe(1);
+    expect(data.name).toBe('Radarr');
+    expect(data.syncLevel).toBe('addOnly');
+    expect(putBody['syncLevel']).toBe('addOnly');
+  });
+
+  it('throws when prowlarr is not configured', async () => {
+    await expect(prowlarrModule.handlers['prowlarr_update_app']({ id: 1, syncLevel: 'disabled' }, {})).rejects.toThrow('Prowlarr is not configured');
+  });
+});
+
+// ─── prowlarr_test_notification ───────────────────────────────────────────────
+
+describe('prowlarr_test_notification', () => {
+  it('posts TestNotification command with notificationId', async () => {
+    let commandBody: Record<string, unknown> = {};
+    mswServer.use(http.post(`${API}/command`, async ({ request }) => {
+      commandBody = await request.json() as Record<string, unknown>;
+      return HttpResponse.json({ id: 202 });
+    }));
+    const result = await prowlarrModule.handlers['prowlarr_test_notification']({ notificationId: 5 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.commandId).toBe(202);
+    expect(data.message).toContain('notification');
+    expect(commandBody['name']).toBe('TestNotification');
+    expect(commandBody['notificationId']).toBe(5);
+  });
+
+  it('throws when prowlarr is not configured', async () => {
+    await expect(prowlarrModule.handlers['prowlarr_test_notification']({ notificationId: 1 }, {})).rejects.toThrow('Prowlarr is not configured');
   });
 });
 

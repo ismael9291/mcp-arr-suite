@@ -540,8 +540,14 @@ export const radarrModule: ToolModule = {
     },
     {
       name: 'radarr_trigger_downloaded_scan',
-      description: 'Force a scan of the completed downloads folder to import any files that were not auto-imported.',
-      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+      description: 'Force a scan of a completed downloads path to import any files that were not auto-imported. A path is required — pass the absolute path to the completed downloads folder (e.g. /downloads/complete).',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          path: { type: 'string', description: 'Absolute path to the completed downloads folder to scan (e.g. /downloads/complete)' },
+        },
+        required: ['path'],
+      },
     },
     {
       name: 'radarr_bulk_update_movies',
@@ -699,7 +705,7 @@ export const radarrModule: ToolModule = {
 
     radarr_refresh_movie: async (args, clients) => {
       if (!clients.radarr) throw new Error('Radarr is not configured');
-      const movieId = args.movieId as number | undefined;
+      const movieId = args.movieId !== undefined ? Number(args.movieId) : undefined;
       if (movieId !== undefined) {
         const [movie, result] = await Promise.all([
           clients.radarr.getMovieById(movieId),
@@ -1347,10 +1353,11 @@ export const radarrModule: ToolModule = {
       return ok({ success: true, message: movieIds.length > 0 ? `Rename triggered for ${movieIds.length} movies` : 'Rename triggered for all movies', commandId: result.id });
     },
 
-    radarr_trigger_downloaded_scan: async (_args, clients) => {
+    radarr_trigger_downloaded_scan: async (args, clients) => {
       if (!clients.radarr) throw new Error('Radarr is not configured');
-      const result = await clients.radarr.runCommand('DownloadedMoviesScan');
-      return ok({ success: true, message: 'Triggered scan of completed downloads folder', commandId: result.id });
+      const path = args.path as string;
+      const result = await clients.radarr.runCommand('DownloadedMoviesScan', { path });
+      return ok({ success: true, message: `Triggered scan of ${path}`, commandId: result.id });
     },
 
     radarr_bulk_update_movies: async (args, clients) => {
@@ -1391,7 +1398,7 @@ export const radarrModule: ToolModule = {
           path: i.path,
           relativePath: i.relativePath,
           movie: i.movie,
-          quality: i.quality?.quality?.name,
+          quality: i.quality,
           size: formatBytes(i.size),
           rejections: i.rejections,
         })),

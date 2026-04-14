@@ -256,6 +256,75 @@ describe('sonarr_get_episode_files', () => {
   });
 });
 
+// ─── sonarr_delete_episode_files_bulk ────────────────────────────────────────
+
+describe('sonarr_delete_episode_files_bulk', () => {
+  it('deletes explicit fileIds via bulk endpoint', async () => {
+    let capturedBody: Record<string, unknown> = {};
+    mswServer.use(http.delete(`${API}/episodefile/bulk`, async ({ request }) => {
+      capturedBody = await request.json() as Record<string, unknown>;
+      return new HttpResponse(null, { status: 204 });
+    }));
+    const result = await sonarrModule.handlers['sonarr_delete_episode_files_bulk']({ fileIds: [1, 2, 3] }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.deleted).toBe(3);
+    expect(capturedBody['episodeFileIds']).toEqual([1, 2, 3]);
+  });
+
+  it('resolves all files for a series when only seriesId given', async () => {
+    const file1 = { ...episodeFileFixture, id: 10, seasonNumber: 1 };
+    const file2 = { ...episodeFileFixture, id: 11, seasonNumber: 2 };
+    let deletedIds: number[] = [];
+    mswServer.use(
+      http.get(`${API}/episodefile`, () => HttpResponse.json([file1, file2])),
+      http.delete(`${API}/episodefile/bulk`, async ({ request }) => {
+        const body = await request.json() as { episodeFileIds: number[] };
+        deletedIds = body.episodeFileIds;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    const result = await sonarrModule.handlers['sonarr_delete_episode_files_bulk']({ seriesId: 1 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.deleted).toBe(2);
+    expect(deletedIds).toEqual([10, 11]);
+  });
+
+  it('filters by seasonNumber when combined with seriesId', async () => {
+    const file1 = { ...episodeFileFixture, id: 10, seasonNumber: 1 };
+    const file2 = { ...episodeFileFixture, id: 11, seasonNumber: 2 };
+    let deletedIds: number[] = [];
+    mswServer.use(
+      http.get(`${API}/episodefile`, () => HttpResponse.json([file1, file2])),
+      http.delete(`${API}/episodefile/bulk`, async ({ request }) => {
+        const body = await request.json() as { episodeFileIds: number[] };
+        deletedIds = body.episodeFileIds;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    const result = await sonarrModule.handlers['sonarr_delete_episode_files_bulk']({ seriesId: 1, seasonNumber: 1 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.deleted).toBe(1);
+    expect(deletedIds).toEqual([10]);
+  });
+
+  it('returns deleted: 0 with no API call when no files match', async () => {
+    mswServer.use(http.get(`${API}/episodefile`, () => HttpResponse.json([])));
+    const result = await sonarrModule.handlers['sonarr_delete_episode_files_bulk']({ seriesId: 1 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.deleted).toBe(0);
+  });
+
+  it('throws when neither fileIds nor seriesId provided', async () => {
+    await expect(sonarrModule.handlers['sonarr_delete_episode_files_bulk']({}, clients)).rejects.toThrow('Provide fileIds or seriesId');
+  });
+
+  it('throws when sonarr is not configured', async () => {
+    await expect(sonarrModule.handlers['sonarr_delete_episode_files_bulk']({ fileIds: [1] }, {})).rejects.toThrow('Sonarr is not configured');
+  });
+});
+
 // ─── sonarr_get_blocklist ─────────────────────────────────────────────────────
 
 describe('sonarr_get_blocklist', () => {
@@ -1052,18 +1121,25 @@ describe('sonarr_trigger_rename_series', () => {
 // ─── sonarr_trigger_downloaded_scan ─────────────────────────────────────────
 
 describe('sonarr_trigger_downloaded_scan', () => {
-  it('posts DownloadedEpisodesScan command', async () => {
-    let commandName = '';
+  it('posts DownloadedEpisodesScan command with path in body', async () => {
+    let commandBody: Record<string, unknown> = {};
     mswServer.use(http.post(`${API}/command`, async ({ request }) => {
-      const body = await request.json() as { name: string };
-      commandName = body.name;
+      commandBody = await request.json() as Record<string, unknown>;
       return HttpResponse.json({ id: 203 });
     }));
-    const result = await sonarrModule.handlers['sonarr_trigger_downloaded_scan']({}, clients);
+    const result = await sonarrModule.handlers['sonarr_trigger_downloaded_scan']({ path: '/downloads/complete' }, clients);
     const data = JSON.parse(result.content[0].text);
     expect(data.success).toBe(true);
     expect(data.commandId).toBe(203);
-    expect(commandName).toBe('DownloadedEpisodesScan');
+    expect(commandBody['name']).toBe('DownloadedEpisodesScan');
+    expect(commandBody['path']).toBe('/downloads/complete');
+  });
+
+  it('includes path in success message', async () => {
+    mswServer.use(http.post(`${API}/command`, () => HttpResponse.json({ id: 204 })));
+    const result = await sonarrModule.handlers['sonarr_trigger_downloaded_scan']({ path: '/downloads/complete' }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.message).toContain('/downloads/complete');
   });
 });
 
@@ -1154,7 +1230,7 @@ describe('sonarr_get_manual_import', () => {
     const result = await sonarrModule.handlers['sonarr_get_manual_import']({ folder: '/downloads' }, clients);
     const data = JSON.parse(result.content[0].text);
     expect(data.count).toBe(2);
-    expect(data.items[0].quality).toBe('Bluray-1080p');
+    expect(data.items[0].quality).toEqual({ quality: { name: 'Bluray-1080p' }, revision: { version: 1 } });
     expect(data.items[0].series).toEqual({ id: 1, title: 'Breaking Bad' });
     expect(data.items[0].rejections).toEqual([]);
     expect(data.items[1].rejections).toHaveLength(1);

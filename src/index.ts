@@ -2,13 +2,14 @@
 /**
  * mcp-arr-suite — MCP Server for the *arr Media Management Suite
  *
- * Supports: Sonarr (TV), Radarr (Movies), Lidarr (Music), Prowlarr (Indexers)
+ * Supports: Sonarr (TV), Radarr (Movies), Lidarr (Music), Prowlarr (Indexers), SABnzbd (Downloader)
  *
  * Configuration via environment variables:
  *   SONARR_URL, SONARR_API_KEY
  *   RADARR_URL, RADARR_API_KEY
  *   LIDARR_URL, LIDARR_API_KEY
  *   PROWLARR_URL, PROWLARR_API_KEY
+ *   SABNZBD_URL, SABNZBD_API_KEY
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -16,6 +17,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 import { SonarrClient, RadarrClient, LidarrClient, ProwlarrClient } from './clients/arr-client.js';
+import { SabnzbdClient } from './clients/sabnzbd-client.js';
 import type { ClientMap } from './types.js';
 import { HandlerRegistry } from './registry.js';
 import { buildConfigModule } from './shared/config-tools.js';
@@ -23,6 +25,7 @@ import { sonarrModule } from './services/sonarr.js';
 import { radarrModule } from './services/radarr.js';
 import { lidarrModule } from './services/lidarr.js';
 import { prowlarrModule } from './services/prowlarr.js';
+import { sabnzbdModule } from './services/sabnzbd.js';
 import { crossServiceModule } from './services/cross-service.js';
 import { trashModule } from './trash/tools.js';
 
@@ -41,6 +44,9 @@ if (process.env.LIDARR_URL && process.env.LIDARR_API_KEY) {
 }
 if (process.env.PROWLARR_URL && process.env.PROWLARR_API_KEY) {
   clients.prowlarr = new ProwlarrClient({ url: process.env.PROWLARR_URL, apiKey: process.env.PROWLARR_API_KEY });
+}
+if (process.env.SABNZBD_URL && process.env.SABNZBD_API_KEY) {
+  clients.sabnzbd = new SabnzbdClient(process.env.SABNZBD_URL, process.env.SABNZBD_API_KEY);
 }
 
 if (Object.keys(clients).length === 0) {
@@ -72,6 +78,9 @@ if (clients.lidarr) {
 }
 if (clients.prowlarr) {
   registry.register(prowlarrModule);
+}
+if (clients.sabnzbd) {
+  registry.register(sabnzbdModule);
 }
 
 // ─── MCP server ───────────────────────────────────────────────────────────────

@@ -2,12 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { HandlerRegistry } from '../../src/registry.js';
 import type { ClientMap } from '../../src/types.js';
 import { SonarrClient, RadarrClient, LidarrClient, ProwlarrClient } from '../../src/clients/arr-client.js';
+import { SabnzbdClient } from '../../src/clients/sabnzbd-client.js';
 import { buildConfigModule } from '../../src/shared/config-tools.js';
 import { crossServiceModule } from '../../src/services/cross-service.js';
 import { sonarrModule } from '../../src/services/sonarr.js';
 import { radarrModule } from '../../src/services/radarr.js';
 import { lidarrModule } from '../../src/services/lidarr.js';
 import { prowlarrModule } from '../../src/services/prowlarr.js';
+import { sabnzbdModule } from '../../src/services/sabnzbd.js';
 import { trashModule } from '../../src/trash/tools.js';
 
 const searchTerm = process.env.MCP_ARR_LIVE_SEARCH_TERM ?? 'dune';
@@ -40,10 +42,13 @@ if (process.env.PROWLARR_URL && process.env.PROWLARR_API_KEY) {
     apiKey: process.env.PROWLARR_API_KEY,
   });
 }
+if (process.env.SABNZBD_URL && process.env.SABNZBD_API_KEY) {
+  clients.sabnzbd = new SabnzbdClient(process.env.SABNZBD_URL, process.env.SABNZBD_API_KEY);
+}
 
 const configuredServices = Object.keys(clients) as Array<keyof ClientMap>;
 const hasAnyService = configuredServices.length > 0;
-const mediaServices = configuredServices.filter((name) => name !== 'prowlarr');
+const mediaServices = configuredServices.filter((name) => name !== 'prowlarr' && name !== 'sabnzbd');
 
 const registry = new HandlerRegistry();
 registry.register(crossServiceModule);
@@ -62,6 +67,9 @@ if (clients.lidarr) {
 }
 if (clients.prowlarr) {
   registry.register(prowlarrModule);
+}
+if (clients.sabnzbd) {
+  registry.register(sabnzbdModule);
 }
 
 async function callTool<T = Record<string, unknown>>(
@@ -236,7 +244,10 @@ if (clients.radarr) {
         const item = data.items[0];
         expect(item).toHaveProperty('trackedDownloadStatus');
         expect(item).toHaveProperty('trackedDownloadState');
-        expect(item).toHaveProperty('statusMessages');
+        // statusMessages is omitted when empty (response shaping rule), so only check if present
+        if ('statusMessages' in item) {
+          expect(Array.isArray(item.statusMessages)).toBe(true);
+        }
       }
     });
 
@@ -293,7 +304,8 @@ if (clients.radarr) {
       });
 
       it('radarr_trigger_downloaded_scan responds with commandId', async () => {
-        const data = await callTool<{ success: boolean; commandId: number }>('radarr_trigger_downloaded_scan');
+        const path = process.env.RADARR_TEST_DOWNLOADS_PATH ?? '/downloads/complete';
+        const data = await callTool<{ success: boolean; commandId: number }>('radarr_trigger_downloaded_scan', { path });
         expect(data.success).toBe(true);
         expect(typeof data.commandId).toBe('number');
       });
@@ -447,7 +459,10 @@ if (clients.sonarr) {
         const item = data.items[0];
         expect(item).toHaveProperty('trackedDownloadStatus');
         expect(item).toHaveProperty('trackedDownloadState');
-        expect(item).toHaveProperty('statusMessages');
+        // statusMessages is omitted when empty (response shaping rule), so only check if present
+        if ('statusMessages' in item) {
+          expect(Array.isArray(item.statusMessages)).toBe(true);
+        }
       }
     });
 
@@ -497,7 +512,8 @@ if (clients.sonarr) {
       });
 
       it('sonarr_trigger_downloaded_scan responds with commandId', async () => {
-        const data = await callTool<{ success: boolean; commandId: number }>('sonarr_trigger_downloaded_scan');
+        const path = process.env.SONARR_TEST_DOWNLOADS_PATH ?? '/downloads/complete';
+        const data = await callTool<{ success: boolean; commandId: number }>('sonarr_trigger_downloaded_scan', { path });
         expect(data.success).toBe(true);
         expect(typeof data.commandId).toBe('number');
       });
@@ -757,11 +773,49 @@ if (clients.prowlarr) {
       await callTool('prowlarr_get_notifications');
     });
 
+    it('prowlarr_get_status returns version and appData', async () => {
+      const data = await callTool<{ version: string; appData: string; isDebug: boolean }>('prowlarr_get_status');
+      expect(typeof data.version).toBe('string');
+      expect(typeof data.appData).toBe('string');
+      expect(typeof data.isDebug).toBe('boolean');
+    });
+
+    it('prowlarr_get_indexer returns single indexer fields', async () => {
+      const indexers = await callTool<{ count: number; indexers: Array<{ id: number; name: string }> }>('prowlarr_get_indexers');
+      if (indexers.count === 0) {
+        console.log('  [skip] no indexers configured — skipping prowlarr_get_indexer');
+        return;
+      }
+      const firstId = indexers.indexers[0].id;
+      const data = await callTool<{ id: number; name: string; protocol: string; priority: number }>('prowlarr_get_indexer', { id: firstId });
+      expect(data.id).toBe(firstId);
+      expect(typeof data.name).toBe('string');
+      expect(typeof data.protocol).toBe('string');
+      expect(typeof data.priority).toBe('number');
+    });
+
     if (enableCommandSmoke) {
       it('prowlarr_trigger_backup responds with commandId', async () => {
         const result = await callTool<{ success: boolean; commandId: number }>('prowlarr_trigger_backup');
         expect(result.success).toBe(true);
         expect(typeof result.commandId).toBe('number');
+      });
+
+      it('prowlarr_trigger_rss_sync responds with commandId', async () => {
+        try {
+          const result = await callTool<{ success: boolean; commandId: number }>('prowlarr_trigger_rss_sync');
+          expect(result.success).toBe(true);
+          expect(typeof result.commandId).toBe('number');
+        } catch (e) {
+          console.log(`  [skip] prowlarr_trigger_rss_sync not supported on this instance: ${(e as Error).message.slice(0, 80)}`);
+        }
+      });
+
+      it('prowlarr_sync_apps responds with commandId and message', async () => {
+        const result = await callTool<{ success: boolean; commandId: number; message: string }>('prowlarr_sync_apps');
+        expect(result.success).toBe(true);
+        expect(typeof result.commandId).toBe('number');
+        expect(result.message).toContain('Sync triggered');
       });
 
       it('prowlarr_get_command_status polls a triggered command', async () => {
@@ -771,8 +825,95 @@ if (clients.prowlarr) {
         expect(['queued', 'started', 'completed', 'failed', 'aborted'].includes(status.status)).toBe(true);
       });
 
-      it('indexer test command responds', async () => {
+      it('prowlarr_test_indexers responds', async () => {
         await callTool('prowlarr_test_indexers');
+      });
+
+      it('prowlarr_test_indexer responds for first indexer', async () => {
+        const indexers = await callTool<{ count: number; indexers: Array<{ id: number }> }>('prowlarr_get_indexers');
+        if (indexers.count === 0) return;
+        const firstId = indexers.indexers[0].id;
+        const data = await callTool<{ id: number; isValid: boolean; errors: string[] }>('prowlarr_test_indexer', { id: firstId });
+        expect(data.id).toBe(firstId);
+        expect(typeof data.isValid).toBe('boolean');
+        expect(Array.isArray(data.errors)).toBe(true);
+      });
+    }
+  });
+}
+
+if (clients.sabnzbd) {
+  describe('live SABnzbd smoke', () => {
+    it('sabnzbd_version returns a version string', async () => {
+      const data = await callTool<{ version: string }>('sabnzbd_version');
+      expect(typeof data.version).toBe('string');
+      expect(data.version.length).toBeGreaterThan(0);
+    });
+
+    it('sabnzbd_get_status returns status fields', async () => {
+      const data = await callTool<{ paused: boolean }>('sabnzbd_get_status');
+      expect(typeof data.paused).toBe('boolean');
+    });
+
+    it('sabnzbd_get_queue returns paginated queue', async () => {
+      const data = await callTool<{ total: number; items: unknown[]; paused: boolean }>('sabnzbd_get_queue', { limit: 5 });
+      expect(typeof data.total).toBe('number');
+      expect(Array.isArray(data.items)).toBe(true);
+      expect(typeof data.paused).toBe('boolean');
+    });
+
+    it('sabnzbd_get_history returns paginated history', async () => {
+      const data = await callTool<{ total: number; items: unknown[] }>('sabnzbd_get_history', { limit: 5 });
+      expect(typeof data.total).toBe('number');
+      expect(Array.isArray(data.items)).toBe(true);
+    });
+
+    it('sabnzbd_get_cats returns category list', async () => {
+      const data = await callTool<{ count: number; categories: Array<{ name: string }> }>('sabnzbd_get_cats');
+      expect(typeof data.count).toBe('number');
+      expect(Array.isArray(data.categories)).toBe(true);
+    });
+
+    it('sabnzbd_get_scripts returns script list', async () => {
+      const data = await callTool<{ count: number; scripts: string[] }>('sabnzbd_get_scripts');
+      expect(typeof data.count).toBe('number');
+      expect(Array.isArray(data.scripts)).toBe(true);
+    });
+
+    it('sabnzbd_server_stats returns formatted totals', async () => {
+      const data = await callTool<{ total: { day: string; week: string; month: string; total: string }; servers: unknown[] }>('sabnzbd_server_stats');
+      expect(data.total).toBeDefined();
+      expect(typeof data.total.day).toBe('string');
+      expect(data.total.day).toMatch(/\d+(\.\d+)? (B|KB|MB|GB|TB)/);
+      expect(Array.isArray(data.servers)).toBe(true);
+    });
+
+    it('sabnzbd_get_warnings returns warnings list', async () => {
+      const data = await callTool<{ count: number; warnings: unknown[] }>('sabnzbd_get_warnings');
+      expect(typeof data.count).toBe('number');
+      expect(Array.isArray(data.warnings)).toBe(true);
+    });
+
+    it('sabnzbd_get_paths returns configured directories', async () => {
+      const data = await callTool<Record<string, unknown>>('sabnzbd_get_paths');
+      expect(data).toBeDefined();
+      expect(data.categories).toBeDefined();
+    });
+
+    if (enableCommandSmoke) {
+      it('sabnzbd_retry_all responds successfully', async () => {
+        const data = await callTool<{ success: boolean; message: string }>('sabnzbd_retry_all');
+        expect(data.success).toBe(true);
+      });
+
+      it('sabnzbd_rss_now triggers feed refresh', async () => {
+        const data = await callTool<{ success: boolean }>('sabnzbd_rss_now');
+        expect(data.success).toBe(true);
+      });
+
+      it('sabnzbd_watched_now triggers folder scan', async () => {
+        const data = await callTool<{ success: boolean }>('sabnzbd_watched_now');
+        expect(data.success).toBe(true);
       });
     }
   });

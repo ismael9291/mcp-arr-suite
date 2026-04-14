@@ -972,6 +972,22 @@ describe('radarr_refresh_movie (optional movieId)', () => {
     expect(data.commandId).toBe(60);
   });
 
+  it('sends movieId as integer in movieIds array (not as string)', async () => {
+    let commandBody: Record<string, unknown> = {};
+    mswServer.use(
+      http.get(`${API}/movie/42`, () => HttpResponse.json({ ...movieFixtures[0], id: 42 })),
+      http.post(`${API}/command`, async ({ request }) => {
+        commandBody = await request.json() as Record<string, unknown>;
+        return HttpResponse.json({ id: 62 });
+      }),
+    );
+    await radarrModule.handlers['radarr_refresh_movie']({ movieId: '42' }, clients);
+    const ids = commandBody['movieIds'] as number[];
+    expect(Array.isArray(ids)).toBe(true);
+    expect(typeof ids[0]).toBe('number');
+    expect(ids[0]).toBe(42);
+  });
+
   it('refreshes all movies when movieId is omitted', async () => {
     let commandBody: Record<string, unknown> = {};
     mswServer.use(http.post(`${API}/command`, async ({ request }) => {
@@ -1057,17 +1073,25 @@ describe('radarr_trigger_rename_movies', () => {
 // ─── radarr_trigger_downloaded_scan ─────────────────────────────────────────
 
 describe('radarr_trigger_downloaded_scan', () => {
-  it('posts DownloadedMoviesScan command', async () => {
-    let commandName = '';
+  it('posts DownloadedMoviesScan command with path in body', async () => {
+    let commandBody: Record<string, unknown> = {};
     mswServer.use(http.post(`${API}/command`, async ({ request }) => {
-      const body = await request.json() as { name: string };
-      commandName = body.name;
+      commandBody = await request.json() as Record<string, unknown>;
       return HttpResponse.json({ id: 304 });
     }));
-    const result = await radarrModule.handlers['radarr_trigger_downloaded_scan']({}, clients);
+    const result = await radarrModule.handlers['radarr_trigger_downloaded_scan']({ path: '/downloads/complete' }, clients);
     const data = JSON.parse(result.content[0].text);
     expect(data.success).toBe(true);
-    expect(commandName).toBe('DownloadedMoviesScan');
+    expect(data.commandId).toBe(304);
+    expect(commandBody['name']).toBe('DownloadedMoviesScan');
+    expect(commandBody['path']).toBe('/downloads/complete');
+  });
+
+  it('includes path in success message', async () => {
+    mswServer.use(http.post(`${API}/command`, () => HttpResponse.json({ id: 305 })));
+    const result = await radarrModule.handlers['radarr_trigger_downloaded_scan']({ path: '/downloads/complete' }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.message).toContain('/downloads/complete');
   });
 });
 
@@ -1157,7 +1181,7 @@ describe('radarr_get_manual_import', () => {
     const result = await radarrModule.handlers['radarr_get_manual_import']({ folder: '/downloads' }, clients);
     const data = JSON.parse(result.content[0].text);
     expect(data.count).toBe(2);
-    expect(data.items[0].quality).toBe('Bluray-1080p');
+    expect(data.items[0].quality).toEqual({ quality: { name: 'Bluray-1080p' }, revision: { version: 1 } });
     expect(data.items[0].movie).toEqual({ id: 1, title: 'Inception', year: 2010 });
     expect(data.items[0].rejections).toEqual([]);
     expect(data.items[1].rejections).toHaveLength(1);

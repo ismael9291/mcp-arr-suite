@@ -138,6 +138,81 @@ export const prowlarrModule: ToolModule = {
       description: 'List all configured notification providers in Prowlarr.',
       inputSchema: { type: 'object' as const, properties: {}, required: [] },
     },
+    {
+      name: 'prowlarr_get_status',
+      description: 'Get Prowlarr system status: version, build time, OS, and app data path.',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
+    {
+      name: 'prowlarr_trigger_rss_sync',
+      description: 'Trigger an immediate RSS sync across all indexers in Prowlarr.',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
+    {
+      name: 'prowlarr_sync_apps',
+      description: 'Trigger an immediate sync of all Prowlarr indexers to connected apps (Sonarr, Radarr, etc.).',
+      inputSchema: { type: 'object' as const, properties: {}, required: [] },
+    },
+    {
+      name: 'prowlarr_test_indexer',
+      description: 'Test a single Prowlarr indexer by ID and return its health status.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          id: { type: 'number', description: 'Indexer ID (from prowlarr_get_indexers)' },
+        },
+        required: ['id'],
+      },
+    },
+    {
+      name: 'prowlarr_update_indexer',
+      description: 'Update settings for a Prowlarr indexer. Only pass the fields you want to change.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          id: { type: 'number', description: 'Indexer ID (from prowlarr_get_indexers)' },
+          enableRss: { type: 'boolean', description: 'Enable RSS sync for this indexer' },
+          enableAutomaticSearch: { type: 'boolean', description: 'Enable automatic search' },
+          enableInteractiveSearch: { type: 'boolean', description: 'Enable interactive search' },
+          priority: { type: 'number', description: 'Indexer priority (1–50, lower = higher priority)' },
+        },
+        required: ['id'],
+      },
+    },
+    {
+      name: 'prowlarr_get_indexer',
+      description: 'Get details for a single Prowlarr indexer by ID.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          id: { type: 'number', description: 'Indexer ID (from prowlarr_get_indexers)' },
+        },
+        required: ['id'],
+      },
+    },
+    {
+      name: 'prowlarr_update_app',
+      description: 'Update the sync level for a connected application in Prowlarr (e.g. Sonarr, Radarr).',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          id: { type: 'number', description: 'Application ID (from prowlarr_get_apps)' },
+          syncLevel: { type: 'string', enum: ['addOnly', 'fullSync', 'disabled'], description: 'Sync level for this application' },
+        },
+        required: ['id', 'syncLevel'],
+      },
+    },
+    {
+      name: 'prowlarr_test_notification',
+      description: 'Send a test notification via a configured Prowlarr notification provider.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          notificationId: { type: 'number', description: 'Notification provider ID (from prowlarr_get_notifications)' },
+        },
+        required: ['notificationId'],
+      },
+    },
   ],
 
   handlers: {
@@ -388,6 +463,100 @@ export const prowlarrModule: ToolModule = {
           },
         })),
       });
+    },
+
+    prowlarr_get_status: async (_args, clients) => {
+      if (!clients.prowlarr) throw new Error('Prowlarr is not configured');
+      const s = await clients.prowlarr.getStatus();
+      return ok({
+        version: s.version,
+        buildTime: s.buildTime,
+        isDebug: s.isDebug,
+        appData: s.appData,
+        osName: s.osName,
+        runtimeVersion: (s as unknown as Record<string, unknown>).runtimeVersion,
+      });
+    },
+
+    prowlarr_trigger_rss_sync: async (_args, clients) => {
+      if (!clients.prowlarr) throw new Error('Prowlarr is not configured');
+      const result = await clients.prowlarr.runCommand('RssSync');
+      return ok({ success: true, commandId: result.id });
+    },
+
+    prowlarr_sync_apps: async (_args, clients) => {
+      if (!clients.prowlarr) throw new Error('Prowlarr is not configured');
+      const result = await clients.prowlarr.runCommand('ApplicationIndexerSync');
+      return ok({ success: true, commandId: result.id, message: 'Sync triggered for all connected apps' });
+    },
+
+    prowlarr_test_indexer: async (args, clients) => {
+      if (!clients.prowlarr) throw new Error('Prowlarr is not configured');
+      const id = Number(args.id);
+      const indexer = await clients.prowlarr.getIndexer(id);
+      try {
+        const result = await clients.prowlarr.testIndexer(indexer);
+        // Prowlarr returns 200 with no isValid field on success; treat as valid
+        const isValid = (result as Record<string, unknown>).isValid !== false;
+        const failures = (result as Record<string, unknown>).validationFailures as Array<{ errorMessage: string }> | undefined;
+        return ok({
+          id,
+          name: indexer.name,
+          isValid,
+          errors: (failures ?? []).map(f => f.errorMessage),
+        });
+      } catch (e) {
+        // 400 means validation failed — surface as isValid: false
+        return ok({ id, name: indexer.name, isValid: false, errors: [(e as Error).message] });
+      }
+    },
+
+    prowlarr_update_indexer: async (args, clients) => {
+      if (!clients.prowlarr) throw new Error('Prowlarr is not configured');
+      const { id, enableRss, enableAutomaticSearch, enableInteractiveSearch, priority } = args as {
+        id: number;
+        enableRss?: boolean;
+        enableAutomaticSearch?: boolean;
+        enableInteractiveSearch?: boolean;
+        priority?: number;
+      };
+      const patch: Record<string, unknown> = {};
+      if (enableRss !== undefined) patch.enableRss = enableRss;
+      if (enableAutomaticSearch !== undefined) patch.enableAutomaticSearch = enableAutomaticSearch;
+      if (enableInteractiveSearch !== undefined) patch.enableInteractiveSearch = enableInteractiveSearch;
+      if (priority !== undefined) patch.priority = priority;
+      const result = await clients.prowlarr.updateIndexer(Number(id), patch as Parameters<typeof clients.prowlarr.updateIndexer>[1]);
+      return ok({ success: true, id: result.id, name: result.name, changes: patch });
+    },
+
+    prowlarr_get_indexer: async (args, clients) => {
+      if (!clients.prowlarr) throw new Error('Prowlarr is not configured');
+      const id = Number(args.id);
+      const i = await clients.prowlarr.getIndexer(id);
+      return ok({
+        id: i.id,
+        name: i.name,
+        protocol: i.protocol,
+        enableRss: i.enableRss,
+        enableAutomaticSearch: i.enableAutomaticSearch,
+        enableInteractiveSearch: i.enableInteractiveSearch,
+        priority: i.priority,
+      });
+    },
+
+    prowlarr_update_app: async (args, clients) => {
+      if (!clients.prowlarr) throw new Error('Prowlarr is not configured');
+      const id = Number(args.id);
+      const syncLevel = args.syncLevel as string;
+      const result = await clients.prowlarr.updateApplication(id, { syncLevel });
+      return ok({ success: true, id: result.id, name: result.name, syncLevel: result.syncLevel });
+    },
+
+    prowlarr_test_notification: async (args, clients) => {
+      if (!clients.prowlarr) throw new Error('Prowlarr is not configured');
+      const notificationId = Number(args.notificationId);
+      const result = await clients.prowlarr.runCommand('TestNotification', { notificationId });
+      return ok({ success: true, message: 'Test notification sent', commandId: result.id });
     },
 
   },
