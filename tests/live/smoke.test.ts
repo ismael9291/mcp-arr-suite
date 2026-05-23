@@ -3,6 +3,7 @@ import { HandlerRegistry } from '../../src/registry.js';
 import type { ClientMap } from '../../src/types.js';
 import { SonarrClient, RadarrClient, LidarrClient, ProwlarrClient } from '../../src/clients/arr-client.js';
 import { SabnzbdClient } from '../../src/clients/sabnzbd-client.js';
+import { MaintainerrClient } from '../../src/clients/maintainerr-client.js';
 import { buildConfigModule } from '../../src/shared/config-tools.js';
 import { crossServiceModule } from '../../src/services/cross-service.js';
 import { sonarrModule } from '../../src/services/sonarr.js';
@@ -10,6 +11,7 @@ import { radarrModule } from '../../src/services/radarr.js';
 import { lidarrModule } from '../../src/services/lidarr.js';
 import { prowlarrModule } from '../../src/services/prowlarr.js';
 import { sabnzbdModule } from '../../src/services/sabnzbd.js';
+import { maintainerrModule } from '../../src/services/maintainerr.js';
 import { trashModule } from '../../src/trash/tools.js';
 
 const searchTerm = process.env.MCP_ARR_LIVE_SEARCH_TERM ?? 'dune';
@@ -45,10 +47,17 @@ if (process.env.PROWLARR_URL && process.env.PROWLARR_API_KEY) {
 if (process.env.SABNZBD_URL && process.env.SABNZBD_API_KEY) {
   clients.sabnzbd = new SabnzbdClient(process.env.SABNZBD_URL, process.env.SABNZBD_API_KEY);
 }
+if (process.env.MAINTAINERR_URL) {
+  clients.maintainerr = new MaintainerrClient({
+    url: process.env.MAINTAINERR_URL,
+    apiKey: process.env.MAINTAINERR_API_KEY,
+  });
+}
 
 const configuredServices = Object.keys(clients) as Array<keyof ClientMap>;
-const hasAnyService = configuredServices.length > 0;
-const mediaServices = configuredServices.filter((name) => name !== 'prowlarr' && name !== 'sabnzbd');
+const arrServices = configuredServices.filter((name) => name !== 'maintainerr');
+const hasAnyService = arrServices.length > 0;
+const mediaServices = arrServices.filter((name) => name !== 'prowlarr' && name !== 'sabnzbd');
 
 const registry = new HandlerRegistry();
 registry.register(crossServiceModule);
@@ -70,6 +79,9 @@ if (clients.prowlarr) {
 }
 if (clients.sabnzbd) {
   registry.register(sabnzbdModule);
+}
+if (clients.maintainerr) {
+  registry.register(maintainerrModule);
 }
 
 async function callTool<T = Record<string, unknown>>(
@@ -96,8 +108,8 @@ type CountedList = { profiles?: Array<{ id: number; name?: string }>; items?: Ar
 liveDescribe('live smoke tests against configured Arr services', () => {
   it('arr_status reports every configured service as connected', async () => {
     const data = await callTool<Record<string, { configured: boolean; connected: boolean }>>('arr_status');
-    expect(configuredServices.length).toBeGreaterThan(0);
-    for (const service of configuredServices) {
+    expect(arrServices.length).toBeGreaterThan(0);
+    for (const service of arrServices) {
       expect(data[service]?.configured).toBe(true);
       expect(data[service]?.connected).toBe(true);
     }
@@ -946,6 +958,148 @@ if (enableTrash) {
           await callTool('trash_compare_profile', { service, profileId, trashProfile: firstProfile });
         }
         await callTool('trash_compare_naming', { service, mediaServer: 'plex' });
+      });
+    }
+  });
+}
+
+if (clients.maintainerr) {
+  describe('live Maintainerr smoke', () => {
+    it('maintainerr_get_version returns a version string', async () => {
+      const data = await callTool<string>('maintainerr_get_version');
+      expect(typeof data).toBe('string');
+      expect(data.length).toBeGreaterThan(0);
+    });
+
+    it('maintainerr_check_setup reports configured state', async () => {
+      const data = await callTool<{ configured: string }>('maintainerr_check_setup');
+      expect(data.configured).toBeDefined();
+    });
+
+    it('maintainerr_get_settings returns settings object with id', async () => {
+      const data = await callTool<Record<string, unknown>>('maintainerr_get_settings');
+      expect(data.id).toBeDefined();
+    });
+
+    it('maintainerr_get_plex_libraries returns library list', async () => {
+      const data = await callTool<Array<{ key: string; type: string; title: string }>>('maintainerr_get_plex_libraries');
+      expect(Array.isArray(data)).toBe(true);
+      if (data.length > 0) {
+        expect(data[0]).toHaveProperty('key');
+        expect(data[0]).toHaveProperty('type');
+        expect(data[0]).toHaveProperty('title');
+      }
+    });
+
+    it('maintainerr_get_rules returns rules array', async () => {
+      const data = await callTool<unknown[]>('maintainerr_get_rules');
+      expect(Array.isArray(data)).toBe(true);
+    });
+
+    it('maintainerr_get_rule_count matches rules array length', async () => {
+      const rules = await callTool<unknown[]>('maintainerr_get_rules');
+      const count = await callTool<{ count: number }>('maintainerr_get_rule_count');
+      expect(count.count).toBe(rules.length);
+    });
+
+    it('maintainerr_get_collections returns collections array', async () => {
+      const data = await callTool<unknown[]>('maintainerr_get_collections');
+      expect(Array.isArray(data)).toBe(true);
+    });
+
+    it('maintainerr_get_exclusions returns exclusions array', async () => {
+      const data = await callTool<unknown[]>('maintainerr_get_exclusions');
+      expect(Array.isArray(data)).toBe(true);
+    });
+
+    it('maintainerr_get_rule_constants returns applications array', async () => {
+      const data = await callTool<{ applications: Array<{ id: number; name: string }> }>('maintainerr_get_rule_constants');
+      expect(Array.isArray(data.applications)).toBe(true);
+      expect(data.applications.length).toBeGreaterThan(0);
+      const appNames = data.applications.map((a) => a.name);
+      expect(appNames).toContain('Plex');
+    });
+
+    it('maintainerr_get_community_rules returns paginated result', async () => {
+      const data = await callTool<Record<string, unknown>>('maintainerr_get_community_rules', { page: 1, limit: 5, typeId: 1 });
+      expect(data).toBeTruthy();
+    });
+
+    it('maintainerr_get_collection responds for first collection', async () => {
+      const collections = await callTool<Array<{ id: number }>>('maintainerr_get_collections');
+      if (collections.length === 0) {
+        console.log('  [skip] no collections — skipping maintainerr_get_collection');
+        return;
+      }
+      const id = collections[0].id;
+      const data = await callTool<{ id: number }>('maintainerr_get_collection', { id });
+      expect(data.id).toBe(id);
+    });
+
+    it('maintainerr_get_collection_media responds for first collection', async () => {
+      const collections = await callTool<Array<{ id: number }>>('maintainerr_get_collections');
+      if (collections.length === 0) {
+        console.log('  [skip] no collections — skipping maintainerr_get_collection_media');
+        return;
+      }
+      const collectionId = collections[0].id;
+      const media = await callTool<unknown[]>('maintainerr_get_collection_media', { collectionId });
+      expect(Array.isArray(media)).toBe(true);
+      const count = await callTool<{ count: number }>('maintainerr_get_collection_media_count', { collectionId });
+      expect(count.count).toBe(media.length);
+    });
+
+    it('maintainerr_get_rule returns conditions array for first rule group', async () => {
+      const rules = await callTool<Array<{ id: number; name: string }>>('maintainerr_get_rules');
+      if (rules.length === 0) {
+        console.log('  [skip] no rules — skipping maintainerr_get_rule');
+        return;
+      }
+      const id = rules[0].id;
+      // GET /api/rules/{id} returns the rule conditions array for that group, not the group itself
+      const data = await callTool<Array<{ id: number; ruleGroupId: number }>>('maintainerr_get_rule', { id });
+      expect(Array.isArray(data)).toBe(true);
+    });
+
+    it('plex_libraries → get_library_content round-trip', async () => {
+      const libraries = await callTool<Array<{ key: string }>>('maintainerr_get_plex_libraries');
+      if (libraries.length === 0) {
+        console.log('  [skip] no libraries — skipping content test');
+        return;
+      }
+      const data = await callTool<Record<string, unknown>>('maintainerr_get_library_content', {
+        libraryId: libraries[0].key,
+        page: 1,
+      });
+      expect(data).toBeTruthy();
+    });
+
+    it('maintainerr_test_plex returns a result', async () => {
+      const data = await callTool<Record<string, unknown>>('maintainerr_test_plex');
+      expect(data).toBeTruthy();
+    });
+
+    if (enableCommandSmoke) {
+      it('exclusion add/delete round-trip', async () => {
+        const rules = await callTool<Array<{ id: number }>>('maintainerr_get_rules');
+        if (rules.length === 0) {
+          console.log('  [skip] no rules — skipping exclusion round-trip');
+          return;
+        }
+        const ruleGroupId = rules[0].id;
+        const fakePlexId = 999999999;
+
+        const added = await callTool<{ id: number; plexId: number }>('maintainerr_add_exclusion', {
+          plexId: fakePlexId,
+          ruleGroupId,
+        });
+        expect(added.plexId).toBe(fakePlexId);
+        expect(added.id).toBeGreaterThan(0);
+
+        await callTool('maintainerr_delete_exclusion', { id: added.id });
+
+        const exclusions = await callTool<Array<{ plexId: number }>>('maintainerr_get_exclusions');
+        expect(exclusions.some((e) => e.plexId === fakePlexId)).toBe(false);
       });
     }
   });

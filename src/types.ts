@@ -6,6 +6,7 @@ import type {
   ProwlarrClient,
 } from './clients/arr-client.js';
 import type { SabnzbdClient } from './clients/sabnzbd-client.js';
+import type { MaintainerrClient } from './clients/maintainerr-client.js';
 
 // ─── Client map ───────────────────────────────────────────────────────────────
 
@@ -16,6 +17,7 @@ export interface ClientMap {
   lidarr?: LidarrClient;
   prowlarr?: ProwlarrClient;
   sabnzbd?: SabnzbdClient;
+  maintainerr?: MaintainerrClient;
 }
 
 // ─── Handler types ────────────────────────────────────────────────────────────

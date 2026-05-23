@@ -18,6 +18,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 
 import { SonarrClient, RadarrClient, LidarrClient, ProwlarrClient } from './clients/arr-client.js';
 import { SabnzbdClient } from './clients/sabnzbd-client.js';
+import { MaintainerrClient } from './clients/maintainerr-client.js';
 import type { ClientMap } from './types.js';
 import { HandlerRegistry } from './registry.js';
 import { buildConfigModule } from './shared/config-tools.js';
@@ -26,6 +27,7 @@ import { radarrModule } from './services/radarr.js';
 import { lidarrModule } from './services/lidarr.js';
 import { prowlarrModule } from './services/prowlarr.js';
 import { sabnzbdModule } from './services/sabnzbd.js';
+import { maintainerrModule } from './services/maintainerr.js';
 import { crossServiceModule } from './services/cross-service.js';
 import { trashModule } from './trash/tools.js';
 
@@ -47,6 +49,12 @@ if (process.env.PROWLARR_URL && process.env.PROWLARR_API_KEY) {
 }
 if (process.env.SABNZBD_URL && process.env.SABNZBD_API_KEY) {
   clients.sabnzbd = new SabnzbdClient(process.env.SABNZBD_URL, process.env.SABNZBD_API_KEY);
+}
+if (process.env.MAINTAINERR_URL) {
+  clients.maintainerr = new MaintainerrClient({
+    url: process.env.MAINTAINERR_URL,
+    apiKey: process.env.MAINTAINERR_API_KEY,
+  });
 }
 
 if (Object.keys(clients).length === 0) {
@@ -81,6 +89,9 @@ if (clients.prowlarr) {
 }
 if (clients.sabnzbd) {
   registry.register(sabnzbdModule);
+}
+if (clients.maintainerr) {
+  registry.register(maintainerrModule);
 }
 
 // ─── MCP server ───────────────────────────────────────────────────────────────
