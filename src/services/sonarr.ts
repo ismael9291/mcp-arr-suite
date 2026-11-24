@@ -22,6 +22,8 @@ export const sonarrModule: ToolModule = {
           limit: { type: 'number', description: 'Results per page (default: 25, max: 100)' },
           offset: { type: 'number', description: 'Skip N results (default: 0)' },
           search: { type: 'string', description: 'Case-insensitive title filter' },
+          minYear: { type: 'number', description: 'Only include titles released in or after this year' },
+          maxYear: { type: 'number', description: 'Only include titles released in or before this year' },
         },
         required: [],
       },
@@ -679,8 +681,15 @@ export const sonarrModule: ToolModule = {
       const offset = clampOffset((args.offset as number | undefined) ?? 0);
       const search = (args.search as string | undefined)?.trim().toLowerCase();
 
+      const minYear = args.minYear as number | undefined;
+      const maxYear = args.maxYear as number | undefined;
+
       const all = await clients.sonarr.getSeries();
-      const filtered = search ? all.filter(s => s.title.toLowerCase().includes(search)) : all;
+      const filtered = all.filter(s =>
+        (!search || s.title.toLowerCase().includes(search)) &&
+        (minYear === undefined || s.year >= minYear) &&
+        (maxYear === undefined || s.year <= maxYear)
+      );
       const page = filtered.slice(offset, offset + limit);
 
       return ok({
@@ -696,12 +705,15 @@ export const sonarrModule: ToolModule = {
             sizeOnDisk: formatBytes(s.statistics?.sizeOnDisk ?? 0),
             monitored: s.monitored,
             qualityProfileId: s.qualityProfileId,
+            path: s.path,
           })),
           filtered.length,
           offset,
           limit
         ),
         ...(search ? { search } : {}),
+        ...(minYear !== undefined ? { minYear } : {}),
+        ...(maxYear !== undefined ? { maxYear } : {}),
         totalLibrary: all.length,
       });
     },

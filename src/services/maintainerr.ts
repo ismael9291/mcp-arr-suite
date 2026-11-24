@@ -151,12 +151,14 @@ export const maintainerrModule: ToolModule = {
     },
     {
       name: 'maintainerr_get_library_content',
-      description: 'Get paginated content from a Plex library.',
+      description: 'Get paginated content from a Plex library. Pass minYear/maxYear to scan every page and return a compact { ratingKey, title, year } list of matches instead.',
       inputSchema: {
         type: 'object' as const,
         properties: {
           libraryId: { type: 'string', description: 'Plex library key (from maintainerr_get_plex_libraries)' },
-          page: { type: 'number', description: 'Page number (default: 1)' },
+          page: { type: 'number', description: 'Page number (default: 1). Ignored when minYear/maxYear is set.' },
+          minYear: { type: 'number', description: 'Only include items released in or after this year' },
+          maxYear: { type: 'number', description: 'Only include items released in or before this year' },
         },
         required: ['libraryId'],
       },
@@ -383,7 +385,7 @@ export const maintainerrModule: ToolModule = {
     },
     {
       name: 'maintainerr_update_rule',
-      description: 'Update an existing rule group. Must include the rule id in the payload. Fetch the current rule first with maintainerr_get_rule to build the full update payload.',
+      description: 'Update an existing rule group. Only pass the fields to change: the current group (rules, collection settings, Radarr/Sonarr links) is fetched and merged so nothing else is reset. Rules are condition objects ({ operator, action, firstVal, customVal, section }).',
       inputSchema: {
         type: 'object' as const,
         properties: {
@@ -428,31 +430,28 @@ export const maintainerrModule: ToolModule = {
     {
       name: 'maintainerr_test_rule',
       description:
-        'Test rule conditions against a library without saving. Returns which media items would match. Use to preview a rule before creating it.',
+        'Test a saved rule group against specific Plex media items without changing anything. Returns whether each item would match, plus the per-condition results.',
       inputSchema: {
         type: 'object' as const,
         properties: {
-          libraryId: { type: 'number', description: 'Plex library ID to test against' },
-          dataType: { type: 'number', description: 'Media type: 1=movies, 2=shows, 3=seasons, 4=episodes' },
-          rules: {
-            type: 'array',
-            description: 'Rule conditions to test',
-            items: { type: 'object' },
-          },
+          rulegroupId: { type: 'number', description: 'Rule group ID (from maintainerr_get_rules)' },
+          mediaId: { type: 'number', description: 'Plex media ID (ratingKey) to test' },
+          mediaIds: { type: 'array', items: { type: 'number' }, description: 'Multiple Plex media IDs to test' },
         },
-        required: ['libraryId', 'dataType', 'rules'],
+        required: ['rulegroupId'],
       },
     },
     {
       name: 'maintainerr_add_exclusion',
-      description: 'Add a manual exclusion for a Plex media item from a specific rule group. Excluded items will not be acted on by that rule.',
+      description: 'Add manual exclusions for Plex media items. Omit ruleGroupId for a global exclusion that applies to every rule (including future ones). Excluded items will not be acted on.',
       inputSchema: {
         type: 'object' as const,
         properties: {
           plexId: { type: 'number', description: 'Plex media ID (ratingKey)' },
-          ruleGroupId: { type: 'number', description: 'Rule group ID to exclude from' },
+          plexIds: { type: 'array', items: { type: 'number' }, description: 'Multiple Plex media IDs to exclude in one call' },
+          ruleGroupId: { type: 'number', description: 'Rule group ID to exclude from (omit for all rules)' },
         },
-        required: ['plexId', 'ruleGroupId'],
+        required: [],
       },
     },
     {
@@ -473,13 +472,14 @@ export const maintainerrModule: ToolModule = {
     },
     {
       name: 'maintainerr_delete_media_exclusions',
-      description: 'Remove all rule exclusions for a specific Plex media item across all rule groups.',
+      description: 'Remove all rule exclusions (global and per-rule, including child seasons/episodes) for Plex media items.',
       inputSchema: {
         type: 'object' as const,
         properties: {
           plexId: { type: 'number', description: 'Plex media ID (ratingKey)' },
+          plexIds: { type: 'array', items: { type: 'number' }, description: 'Multiple Plex media IDs in one call' },
         },
-        required: ['plexId'],
+        required: [],
       },
     },
     {
@@ -728,10 +728,35 @@ export const maintainerrModule: ToolModule = {
 
     maintainerr_get_library_content: async (args, clients) => {
       if (!clients.maintainerr) return err('Maintainerr is not configured. Set MAINTAINERR_URL.');
-      return ok(await clients.maintainerr.getLibraryContent(
-        args.libraryId as string,
-        (args.page as number | undefined) ?? 1
-      ));
+      const minYear = args.minYear as number | undefined;
+      const maxYear = args.maxYear as number | undefined;
+      if (minYear === undefined && maxYear === undefined) {
+        return ok(await clients.maintainerr.getLibraryContent(
+          args.libraryId as string,
+          (args.page as number | undefined) ?? 1
+        ));
+      }
+
+      type PlexItem = { ratingKey: string; title: string; year?: number };
+      const all: PlexItem[] = [];
+      for (let page = 1; ; page++) {
+        const res = await clients.maintainerr.getLibraryContent(args.libraryId as string, page) as
+          { totalSize?: number; items?: PlexItem[] };
+        const items = res?.items ?? [];
+        all.push(...items);
+        if (items.length === 0 || all.length >= (res?.totalSize ?? 0)) break;
+      }
+      const matches = all
+        .filter(i => i.year !== undefined &&
+          (minYear === undefined || i.year >= minYear) &&
+          (maxYear === undefined || i.year <= maxYear))
+        .map(i => ({ ratingKey: Number(i.ratingKey), title: i.title, year: i.year }));
+      return ok({
+        libraryTotal: all.length,
+        count: matches.length,
+        noYear: all.filter(i => i.year === undefined).map(i => i.title),
+        items: matches,
+      });
     },
 
     maintainerr_search_library: async (args, clients) => {
@@ -860,16 +885,50 @@ export const maintainerrModule: ToolModule = {
 
     maintainerr_update_rule: async (args, clients) => {
       if (!clients.maintainerr) return err('Maintainerr is not configured. Set MAINTAINERR_URL.');
-      const payload: Record<string, unknown> = { id: args.id };
-      if (args.name !== undefined) payload.name = args.name;
-      if (args.description !== undefined) payload.description = args.description;
-      if (args.isActive !== undefined) payload.isActive = args.isActive;
-      if (args.arrAction !== undefined) payload.arrAction = args.arrAction;
-      if (args.deleteAfterDays !== undefined) payload.deleteAfterDays = args.deleteAfterDays;
-      if (args.listExclusions !== undefined) payload.listExclusions = args.listExclusions;
-      if (args.forceOverseerr !== undefined) payload.forceOverseerr = args.forceOverseerr;
-      if (args.rules !== undefined) payload.rules = args.rules;
-      return ok(await clients.maintainerr.updateRule(payload));
+      type RuleRow = { ruleJson: string };
+      type Group = Record<string, unknown> & {
+        id: number; rules?: RuleRow[]; collection?: Record<string, unknown>; notifications?: unknown[];
+      };
+      const groups = await clients.maintainerr.getRules() as Group[];
+      const current = groups.find(g => g.id === args.id);
+      if (!current) return err(`Rule group ${args.id} not found.`);
+      const col = current.collection ?? {};
+
+      // Maintainerr's PUT /rules replaces the whole group, so start from the full current state.
+      const payload: Record<string, unknown> = {
+        id: current.id,
+        libraryId: current.libraryId,
+        name: current.name,
+        description: current.description,
+        isActive: current.isActive,
+        useRules: current.useRules,
+        dataType: current.dataType,
+        arrAction: col.arrAction,
+        listExclusions: col.listExclusions,
+        forceOverseerr: col.forceOverseerr,
+        tautulliWatchedPercentOverride: col.tautulliWatchedPercentOverride,
+        radarrSettingsId: col.radarrSettingsId,
+        sonarrSettingsId: col.sonarrSettingsId,
+        notifications: current.notifications,
+        collection: {
+          visibleOnRecommended: col.visibleOnRecommended,
+          visibleOnHome: col.visibleOnHome,
+          deleteAfterDays: col.deleteAfterDays,
+          manualCollection: col.manualCollection,
+          manualCollectionName: col.manualCollectionName,
+          keepLogsForMonths: col.keepLogsForMonths,
+        },
+        rules: (current.rules ?? []).map(r => JSON.parse(r.ruleJson)),
+      };
+      for (const key of ['name', 'description', 'isActive', 'arrAction', 'listExclusions', 'forceOverseerr', 'rules']) {
+        if (args[key] !== undefined) payload[key] = args[key];
+      }
+      if (args.deleteAfterDays !== undefined) {
+        (payload.collection as Record<string, unknown>).deleteAfterDays = args.deleteAfterDays;
+      }
+      const result = await clients.maintainerr.updateRule(payload) as { code?: number; result?: string } | undefined;
+      if (!result || result.code !== 1) return err(`Maintainerr rejected the update: ${JSON.stringify(result)}`);
+      return ok(result);
     },
 
     maintainerr_delete_rule: async (args, clients) => {
@@ -890,16 +949,47 @@ export const maintainerrModule: ToolModule = {
 
     maintainerr_test_rule: async (args, clients) => {
       if (!clients.maintainerr) return err('Maintainerr is not configured. Set MAINTAINERR_URL.');
-      return ok(await clients.maintainerr.testRule(
-        args.libraryId as number,
-        args.dataType as number,
-        args.rules as unknown[]
-      ));
+      const ids = [
+        ...((args.mediaIds as number[] | undefined) ?? []),
+        ...(args.mediaId !== undefined ? [args.mediaId as number] : []),
+      ];
+      if (ids.length === 0) return err('Provide mediaId or mediaIds.');
+      type Stat = { plexId: number; result: boolean; sectionResults?: unknown[] };
+      const results = [];
+      for (const id of ids) {
+        const res = await clients.maintainerr.testRule(args.rulegroupId as number, id) as
+          { code?: number; result?: Stat[] | string };
+        if (res?.code !== 1 || !Array.isArray(res.result)) {
+          results.push({ mediaId: id, error: res?.result ?? 'No result' });
+          continue;
+        }
+        const stat = res.result[0];
+        results.push({ mediaId: id, matches: stat?.result ?? false, sectionResults: stat?.sectionResults });
+      }
+      return ok({ rulegroupId: args.rulegroupId, results });
     },
 
     maintainerr_add_exclusion: async (args, clients) => {
       if (!clients.maintainerr) return err('Maintainerr is not configured. Set MAINTAINERR_URL.');
-      return ok(await clients.maintainerr.addExclusion(args.plexId as number, args.ruleGroupId as number));
+      const ids = [
+        ...((args.plexIds as number[] | undefined) ?? []),
+        ...(args.plexId !== undefined ? [args.plexId as number] : []),
+      ];
+      if (ids.length === 0) return err('Provide plexId or plexIds.');
+      const ruleGroupId = args.ruleGroupId as number | undefined;
+      const failed: { plexId: number; error: string }[] = [];
+      for (const id of ids) {
+        try {
+          await clients.maintainerr.addExclusion(id, ruleGroupId);
+        } catch (e) {
+          failed.push({ plexId: id, error: e instanceof Error ? e.message : String(e) });
+        }
+      }
+      return ok({
+        scope: ruleGroupId === undefined ? 'global' : `ruleGroup ${ruleGroupId}`,
+        added: ids.length - failed.length,
+        failed,
+      });
     },
 
     maintainerr_get_exclusions: async (_args, clients) => {
@@ -915,8 +1005,20 @@ export const maintainerrModule: ToolModule = {
 
     maintainerr_delete_media_exclusions: async (args, clients) => {
       if (!clients.maintainerr) return err('Maintainerr is not configured. Set MAINTAINERR_URL.');
-      await clients.maintainerr.deleteExclusionsForMedia(args.plexId as number);
-      return ok({ deleted: true, plexId: args.plexId });
+      const ids = [
+        ...((args.plexIds as number[] | undefined) ?? []),
+        ...(args.plexId !== undefined ? [args.plexId as number] : []),
+      ];
+      if (ids.length === 0) return err('Provide plexId or plexIds.');
+      const failed: { plexId: number; error: string }[] = [];
+      for (const id of ids) {
+        try {
+          await clients.maintainerr.deleteExclusionsForMedia(id);
+        } catch (e) {
+          failed.push({ plexId: id, error: e instanceof Error ? e.message : String(e) });
+        }
+      }
+      return ok({ deleted: ids.length - failed.length, failed });
     },
 
     maintainerr_get_community_rules: async (args, clients) => {

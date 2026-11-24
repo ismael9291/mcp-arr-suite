@@ -239,17 +239,17 @@ export class MaintainerrClient {
     return this.request('/rules/execute/stop', { method: 'POST', body: JSON.stringify({}) });
   }
 
-  async testRule(libraryId: number, dataType: number, rules: unknown[]): Promise<unknown> {
+  async testRule(rulegroupId: number, mediaId: number): Promise<unknown> {
     return this.request('/rules/test', {
       method: 'POST',
-      body: JSON.stringify({ libraryId, dataType, rules }),
+      body: JSON.stringify({ rulegroupId, mediaId }),
     });
   }
 
-  async addExclusion(plexId: number, ruleGroupId: number): Promise<unknown> {
+  async addExclusion(mediaId: number, ruleGroupId?: number): Promise<unknown> {
     return this.request('/rules/exclusion', {
       method: 'POST',
-      body: JSON.stringify({ plexId, ruleGroupId }),
+      body: JSON.stringify({ mediaId, ...(ruleGroupId !== undefined ? { ruleGroupId } : {}), action: 0 }),
     });
   }
 

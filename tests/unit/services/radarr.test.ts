@@ -63,6 +63,14 @@ describe('radarr_get_movies', () => {
     expect(data.search).toBe('inception');
   });
 
+  it('filters by minYear and maxYear', async () => {
+    const result = await radarrModule.handlers['radarr_get_movies']({ minYear: 2009, maxYear: 2010 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.items.length).toBeGreaterThan(0);
+    expect(data.items.every((m: { year: number }) => m.year >= 2009 && m.year <= 2010)).toBe(true);
+    expect(data.maxYear).toBe(2010);
+  });
+
   it('paginates with limit and offset', async () => {
     const result = await radarrModule.handlers['radarr_get_movies']({ limit: 1, offset: 1 }, clients);
     const data = JSON.parse(result.content[0].text);

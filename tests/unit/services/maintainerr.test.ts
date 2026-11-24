@@ -278,16 +278,59 @@ describe('maintainerr_create_rule', () => {
 });
 
 describe('maintainerr_update_rule', () => {
-  it('only includes provided fields in payload', async () => {
-    await maintainerrModule.handlers['maintainerr_update_rule'](
-      { id: 1, isActive: false },
-      clients
-    );
-    const call = (clients.maintainerr!.updateRule as ReturnType<typeof vi.fn>).mock.calls[0][0] as Record<string, unknown>;
-    expect(call.id).toBe(1);
+  const group = {
+    id: 1, name: 'Unwatched', description: 'd', libraryId: 1, isActive: true, useRules: true, dataType: 1,
+    rules: [{ ruleJson: JSON.stringify({ operator: null, action: 2, firstVal: [0, 5], section: 0 }) }],
+    collection: {
+      arrAction: 0, listExclusions: true, forceOverseerr: false, radarrSettingsId: 1, sonarrSettingsId: null,
+      visibleOnRecommended: false, visibleOnHome: false, deleteAfterDays: null,
+      manualCollection: false, manualCollectionName: '', keepLogsForMonths: 6,
+    },
+  };
+
+  beforeEach(() => {
+    vi.mocked(clients.maintainerr!.getRules).mockResolvedValue([group]);
+    vi.mocked(clients.maintainerr!.updateRule).mockResolvedValue({ code: 1, result: 'Success' });
+  });
+
+  it('merges changes into the full current group so links are preserved', async () => {
+    await maintainerrModule.handlers['maintainerr_update_rule']({ id: 1, isActive: false }, clients);
+    const call = vi.mocked(clients.maintainerr!.updateRule).mock.calls[0][0] as Record<string, unknown>;
     expect(call.isActive).toBe(false);
-    expect(call).not.toHaveProperty('name');
-    expect(call).not.toHaveProperty('rules');
+    expect(call.name).toBe('Unwatched');
+    expect(call.radarrSettingsId).toBe(1);
+    expect(call.rules).toEqual([{ operator: null, action: 2, firstVal: [0, 5], section: 0 }]);
+    expect((call.collection as Record<string, unknown>).keepLogsForMonths).toBe(6);
+  });
+
+  it('replaces rules and deleteAfterDays when given', async () => {
+    const rules = [{ operator: null, action: 9, firstVal: [1, 2], section: 0 }];
+    await maintainerrModule.handlers['maintainerr_update_rule']({ id: 1, rules, deleteAfterDays: 14 }, clients);
+    const call = vi.mocked(clients.maintainerr!.updateRule).mock.calls[0][0] as Record<string, unknown>;
+    expect(call.rules).toEqual(rules);
+    expect((call.collection as Record<string, unknown>).deleteAfterDays).toBe(14);
+  });
+
+  it('keeps a null Sonarr link and only sets deleteAfterDays on the collection', async () => {
+    await maintainerrModule.handlers['maintainerr_update_rule']({ id: 1, deleteAfterDays: 30 }, clients);
+    const call = vi.mocked(clients.maintainerr!.updateRule).mock.calls[0][0] as Record<string, unknown>;
+    expect(call).toHaveProperty('sonarrSettingsId', null);
+    expect(call).not.toHaveProperty('deleteAfterDays');
+    expect(call.collection).toMatchObject({ deleteAfterDays: 30, keepLogsForMonths: 6 });
+  });
+
+  it('errors for an unknown group or a rejected update', async () => {
+    expect((await maintainerrModule.handlers['maintainerr_update_rule']({ id: 99 }, clients)).isError).toBe(true);
+    vi.mocked(clients.maintainerr!.updateRule).mockResolvedValue({ code: 0, result: 'Validation failed' });
+    expect((await maintainerrModule.handlers['maintainerr_update_rule']({ id: 1 }, clients)).isError).toBe(true);
+  });
+});
+
+describe('maintainerr_delete_media_exclusions bulk', () => {
+  it('deletes each plexId', async () => {
+    const result = await maintainerrModule.handlers['maintainerr_delete_media_exclusions']({ plexIds: [1, 2] }, clients);
+    expect(clients.maintainerr!.deleteExclusionsForMedia).toHaveBeenCalledTimes(2);
+    expect(parse<{ deleted: number }>(result).deleted).toBe(2);
   });
 });
 
@@ -308,25 +351,101 @@ describe('maintainerr_execute_rules', () => {
 });
 
 describe('maintainerr_test_rule', () => {
-  it('passes libraryId, dataType, and rules to client', async () => {
-    const rules = [{ firstVal: [0, 7], action: 5, customVal: { ruleTypeId: 0, value: '63072000' } }];
-    await maintainerrModule.handlers['maintainerr_test_rule'](
-      { libraryId: 1, dataType: 1, rules },
+  it('tests each media item against the rule group', async () => {
+    vi.mocked(clients.maintainerr!.testRule)
+      .mockResolvedValueOnce({ code: 1, result: [{ plexId: 10, result: true, sectionResults: [] }] })
+      .mockResolvedValueOnce({ code: 0, result: 'Invalid input' });
+    const result = await maintainerrModule.handlers['maintainerr_test_rule'](
+      { rulegroupId: 1, mediaIds: [10, 11] },
       clients
     );
-    expect(clients.maintainerr!.testRule).toHaveBeenCalledWith(1, 1, rules);
+    expect(clients.maintainerr!.testRule).toHaveBeenCalledWith(1, 10);
+    const data = parse<{ results: { mediaId: number; matches?: boolean; error?: string }[] }>(result);
+    expect(data.results[0]).toMatchObject({ mediaId: 10, matches: true });
+    expect(data.results[1]).toMatchObject({ mediaId: 11, error: 'Invalid input' });
+  });
+
+  it('accepts a single mediaId', async () => {
+    vi.mocked(clients.maintainerr!.testRule)
+      .mockResolvedValueOnce({ code: 1, result: [{ plexId: 7, result: false, sectionResults: [{ id: 0 }] }] });
+    const result = await maintainerrModule.handlers['maintainerr_test_rule']({ rulegroupId: 2, mediaId: 7 }, clients);
+    expect(clients.maintainerr!.testRule).toHaveBeenCalledWith(2, 7);
+    expect(parse<{ results: unknown[] }>(result).results).toEqual([
+      { mediaId: 7, matches: false, sectionResults: [{ id: 0 }] },
+    ]);
+  });
+
+  it('errors when no media id is given', async () => {
+    const result = await maintainerrModule.handlers['maintainerr_test_rule']({ rulegroupId: 1 }, clients);
+    expect(result.isError).toBe(true);
   });
 });
 
 describe('maintainerr_add_exclusion', () => {
-  it('returns the created exclusion', async () => {
+  it('adds a rule-group exclusion', async () => {
     const result = await maintainerrModule.handlers['maintainerr_add_exclusion'](
       { plexId: 12345, ruleGroupId: 1 },
       clients
     );
-    const data = parse<typeof exclusionFixture>(result);
-    expect(data.plexId).toBe(12345);
-    expect(data.ruleGroupId).toBe(1);
+    const data = parse<{ scope: string; added: number }>(result);
+    expect(clients.maintainerr!.addExclusion).toHaveBeenCalledWith(12345, 1);
+    expect(data.scope).toBe('ruleGroup 1');
+    expect(data.added).toBe(1);
+  });
+
+  it('adds global exclusions for multiple plexIds and reports failures', async () => {
+    vi.mocked(clients.maintainerr!.addExclusion)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('boom'));
+    const result = await maintainerrModule.handlers['maintainerr_add_exclusion'](
+      { plexIds: [1, 2] },
+      clients
+    );
+    const data = parse<{ scope: string; added: number; failed: { plexId: number }[] }>(result);
+    expect(clients.maintainerr!.addExclusion).toHaveBeenCalledWith(1, undefined);
+    expect(data.scope).toBe('global');
+    expect(data.added).toBe(1);
+    expect(data.failed).toEqual([{ plexId: 2, error: 'boom' }]);
+  });
+
+  it('errors when no id is given', async () => {
+    const result = await maintainerrModule.handlers['maintainerr_add_exclusion']({}, clients);
+    expect(result.isError).toBe(true);
+  });
+});
+
+describe('maintainerr_get_library_content year filter', () => {
+  it('scans all pages and returns compact matches', async () => {
+    vi.mocked(clients.maintainerr!.getLibraryContent)
+      .mockResolvedValueOnce({ totalSize: 3, items: [
+        { ratingKey: '10', title: 'Old', year: 1999 },
+        { ratingKey: '11', title: 'New', year: 2020 },
+      ] })
+      .mockResolvedValueOnce({ totalSize: 3, items: [{ ratingKey: '12', title: 'Unknown' }] });
+    const result = await maintainerrModule.handlers['maintainerr_get_library_content'](
+      { libraryId: '1', maxYear: 2006 },
+      clients
+    );
+    const data = parse<{ libraryTotal: number; count: number; noYear: string[]; items: unknown[] }>(result);
+    expect(clients.maintainerr!.getLibraryContent).toHaveBeenCalledTimes(2);
+    expect(data.libraryTotal).toBe(3);
+    expect(data.items).toEqual([{ ratingKey: 10, title: 'Old', year: 1999 }]);
+    expect(data.noYear).toEqual(['Unknown']);
+  });
+
+  it('applies minYear and maxYear inclusively', async () => {
+    vi.mocked(clients.maintainerr!.getLibraryContent).mockResolvedValueOnce({ totalSize: 3, items: [
+      { ratingKey: '1', title: 'A', year: 2000 },
+      { ratingKey: '2', title: 'B', year: 2003 },
+      { ratingKey: '3', title: 'C', year: 2006 },
+    ] });
+    const result = await maintainerrModule.handlers['maintainerr_get_library_content'](
+      { libraryId: '2', minYear: 2003, maxYear: 2006 },
+      clients
+    );
+    const data = parse<{ count: number; items: { title: string }[] }>(result);
+    expect(clients.maintainerr!.getLibraryContent).toHaveBeenCalledTimes(1);
+    expect(data.items.map(i => i.title)).toEqual(['B', 'C']);
   });
 });
 
@@ -340,14 +459,15 @@ describe('maintainerr_delete_exclusion', () => {
 });
 
 describe('maintainerr_delete_media_exclusions', () => {
-  it('returns deleted confirmation with plexId', async () => {
+  it('deletes a single plexId', async () => {
     const result = await maintainerrModule.handlers['maintainerr_delete_media_exclusions'](
       { plexId: 12345 },
       clients
     );
-    const data = parse<{ deleted: boolean; plexId: number }>(result);
-    expect(data.deleted).toBe(true);
-    expect(data.plexId).toBe(12345);
+    const data = parse<{ deleted: number; failed: unknown[] }>(result);
+    expect(clients.maintainerr!.deleteExclusionsForMedia).toHaveBeenCalledWith(12345);
+    expect(data.deleted).toBe(1);
+    expect(data.failed).toEqual([]);
   });
 });
 

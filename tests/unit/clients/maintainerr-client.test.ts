@@ -263,7 +263,7 @@ describe('rules methods', () => {
     expect(body).toEqual({});
   });
 
-  it('addExclusion POSTs plexId and ruleGroupId', async () => {
+  it('addExclusion POSTs mediaId, ruleGroupId and ADD action', async () => {
     let body: unknown;
     mswServer.use(http.post(`${API}/rules/exclusion`, async ({ request }) => {
       body = await request.json();
@@ -271,7 +271,18 @@ describe('rules methods', () => {
     }));
     const client = new MaintainerrClient({ url: BASE });
     await client.addExclusion(12345, 1);
-    expect(body).toEqual({ plexId: 12345, ruleGroupId: 1 });
+    expect(body).toEqual({ mediaId: 12345, ruleGroupId: 1, action: 0 });
+  });
+
+  it('addExclusion omits ruleGroupId for a global exclusion', async () => {
+    let body: unknown;
+    mswServer.use(http.post(`${API}/rules/exclusion`, async ({ request }) => {
+      body = await request.json();
+      return HttpResponse.json({ id: 1 });
+    }));
+    const client = new MaintainerrClient({ url: BASE });
+    await client.addExclusion(12345);
+    expect(body).toEqual({ mediaId: 12345, action: 0 });
   });
 
   it('deleteExclusionsForMedia sends DELETE to /rules/exclusions/:plexId', async () => {

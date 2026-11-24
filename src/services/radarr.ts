@@ -22,6 +22,8 @@ export const radarrModule: ToolModule = {
           limit: { type: 'number', description: 'Results per page (default: 25, max: 100)' },
           offset: { type: 'number', description: 'Skip N results (default: 0)' },
           search: { type: 'string', description: 'Case-insensitive title filter' },
+          minYear: { type: 'number', description: 'Only include titles released in or after this year' },
+          maxYear: { type: 'number', description: 'Only include titles released in or before this year' },
         },
         required: [],
       },
@@ -611,8 +613,15 @@ export const radarrModule: ToolModule = {
       const offset = clampOffset((args.offset as number | undefined) ?? 0);
       const search = (args.search as string | undefined)?.trim().toLowerCase();
 
+      const minYear = args.minYear as number | undefined;
+      const maxYear = args.maxYear as number | undefined;
+
       const all = await clients.radarr.getMovies();
-      const filtered = search ? all.filter(m => m.title.toLowerCase().includes(search)) : all;
+      const filtered = all.filter(m =>
+        (!search || m.title.toLowerCase().includes(search)) &&
+        (minYear === undefined || m.year >= minYear) &&
+        (maxYear === undefined || m.year <= maxYear)
+      );
       const page = filtered.slice(offset, offset + limit);
 
       return ok({
@@ -627,12 +636,15 @@ export const radarrModule: ToolModule = {
             monitored: m.monitored,
             studio: m.studio,
             qualityProfileId: m.qualityProfileId,
+            path: m.path,
           })),
           filtered.length,
           offset,
           limit
         ),
         ...(search ? { search } : {}),
+        ...(minYear !== undefined ? { minYear } : {}),
+        ...(maxYear !== undefined ? { maxYear } : {}),
         totalLibrary: all.length,
       });
     },

@@ -42,6 +42,21 @@ describe('sonarr_get_series', () => {
     expect(data.items).toHaveLength(seriesFixtures.length);
   });
 
+  it('filters by maxYear', async () => {
+    const result = await sonarrModule.handlers['sonarr_get_series']({ maxYear: 2008 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.items.length).toBeGreaterThan(0);
+    expect(data.items.every((s: { year: number }) => s.year <= 2008)).toBe(true);
+  });
+
+  it('filters by minYear and echoes it', async () => {
+    const result = await sonarrModule.handlers['sonarr_get_series']({ minYear: 2015 }, clients);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.items.length).toBeGreaterThan(0);
+    expect(data.items.every((s: { year: number }) => s.year >= 2015)).toBe(true);
+    expect(data.minYear).toBe(2015);
+  });
+
   it('returns summary fields only — no raw overview or episode lists', async () => {
     const result = await sonarrModule.handlers['sonarr_get_series']({}, clients);
     const data = JSON.parse(result.content[0].text);
