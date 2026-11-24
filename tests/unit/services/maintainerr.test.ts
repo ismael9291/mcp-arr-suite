@@ -319,6 +319,19 @@ describe('maintainerr_update_rule', () => {
     expect(call.collection).toMatchObject({ deleteAfterDays: 30, keepLogsForMonths: 6 });
   });
 
+  it('sets tautulliWatchedPercentOverride and keeps it when omitted', async () => {
+    await maintainerrModule.handlers['maintainerr_update_rule']({ id: 1, tautulliWatchedPercentOverride: 10 }, clients);
+    const set = vi.mocked(clients.maintainerr!.updateRule).mock.calls[0][0] as Record<string, unknown>;
+    expect(set.tautulliWatchedPercentOverride).toBe(10);
+
+    vi.mocked(clients.maintainerr!.getRules).mockResolvedValue([
+      { ...group, collection: { ...group.collection, tautulliWatchedPercentOverride: 10 } },
+    ]);
+    await maintainerrModule.handlers['maintainerr_update_rule']({ id: 1, isActive: true }, clients);
+    const kept = vi.mocked(clients.maintainerr!.updateRule).mock.calls[1][0] as Record<string, unknown>;
+    expect(kept.tautulliWatchedPercentOverride).toBe(10);
+  });
+
   it('errors for an unknown group or a rejected update', async () => {
     expect((await maintainerrModule.handlers['maintainerr_update_rule']({ id: 99 }, clients)).isError).toBe(true);
     vi.mocked(clients.maintainerr!.updateRule).mockResolvedValue({ code: 0, result: 'Validation failed' });

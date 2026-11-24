@@ -397,6 +397,10 @@ export const maintainerrModule: ToolModule = {
           deleteAfterDays: { type: 'number', description: 'Days before acting on collection media' },
           listExclusions: { type: 'boolean', description: 'Add to *arr import list exclusions' },
           forceOverseerr: { type: 'boolean', description: 'Force Overseerr deletion' },
+          tautulliWatchedPercentOverride: {
+            type: ['number', 'null'],
+            description: 'Percent played at which Tautulli conditions count an item as watched (null = Tautulli\'s own watched flag)',
+          },
           rules: {
             type: 'array',
             description: 'Updated rule conditions array',
@@ -920,7 +924,7 @@ export const maintainerrModule: ToolModule = {
         },
         rules: (current.rules ?? []).map(r => JSON.parse(r.ruleJson)),
       };
-      for (const key of ['name', 'description', 'isActive', 'arrAction', 'listExclusions', 'forceOverseerr', 'rules']) {
+      for (const key of ['name', 'description', 'isActive', 'arrAction', 'listExclusions', 'forceOverseerr', 'tautulliWatchedPercentOverride', 'rules']) {
         if (args[key] !== undefined) payload[key] = args[key];
       }
       if (args.deleteAfterDays !== undefined) {
